@@ -16,6 +16,8 @@ CISO_PLAIN_BLOCK = 0x80000000
 
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
 
+image_offset = 0
+
 def get_terminal_size(fd=sys.stdout.fileno()):
 	try:
 		import fcntl, termios
@@ -40,8 +42,10 @@ def update_progress(progress):
 	sys.stdout.flush()
 
 def check_file_size(f):
+	global image_offset
+
 	f.seek(0, os.SEEK_END)
-	file_size = f.tell()
+	file_size = f.tell() - image_offset
 	ciso = {
 			'magic': CISO_MAGIC,
 			'ver': 2,
@@ -50,7 +54,7 @@ def check_file_size(f):
 			'total_blocks': int(file_size / CISO_BLOCK_SIZE),
 			'align': 2,
 			}
-	f.seek(0, os.SEEK_SET)
+	f.seek(image_offset, os.SEEK_SET)
 	return ciso
 
 def write_cso_header(f, ciso):
@@ -73,6 +77,28 @@ def write_block_index(f, block_index):
 			print(e)
 			sys.exit(1)
 
+def detect_iso_type(f):
+	global image_offset
+
+	# Detect if the image is a REDUMP image
+	f.seek(0x18310000)
+	buffer = f.read(20)
+	if buffer == b"MICROSOFT*XBOX*MEDIA":
+		print("REDUMP image detected")
+		image_offset = 0x18300000
+		return
+
+	# Detect if the image is a raw XDVDFS image
+	f.seek(0x10000)
+	buffer = f.read(20)
+	if buffer == b"MICROSOFT*XBOX*MEDIA":
+		image_offset = 0
+		return
+
+	# Print error and exit
+	print("ERROR: Could not detect ISO type.")
+	sys.exit(1)
+
 def compress_iso(infile):
 	lz4_context = lz4.frame.create_compression_context()
 
@@ -82,6 +108,9 @@ def compress_iso(infile):
 
 	with open(infile, 'rb') as fin:
 		print("Compressing '{}'".format(infile))
+
+		# Detect and validate the ISO
+		detect_iso_type(fin)
 
 		ciso = check_file_size(fin)
 		for k, v in ciso.items():
