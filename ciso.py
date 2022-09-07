@@ -1,4 +1,7 @@
 #!/usr/bin/python3
+# Copyright 2018 David O'Rourke <david.orourke@gmail.com>
+# Copyright 2022 MakeMHz LLC <contact@makemhz.com>
+# Based on ciso from https://github.com/jamie/ciso
 
 import os
 import struct
