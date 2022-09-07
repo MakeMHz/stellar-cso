@@ -99,6 +99,12 @@ def detect_iso_type(f):
 	print("ERROR: Could not detect ISO type.")
 	sys.exit(1)
 
+# Pad file size to ATA block size * 2
+def pad_file_size(f):
+	f.seek(0, os.SEEK_END)
+	size = f.tell()
+	f.write(struct.pack('<B', 0x00) * (0x400 - (size & 0x3FF)))
+
 def compress_iso(infile):
 	lz4_context = lz4.frame.create_compression_context()
 
@@ -208,9 +214,11 @@ def compress_iso(infile):
 		write_block_index(fout_1, block_index)
 
 	# end open(infile)
+	pad_file_size(fout_1)
 	fout_1.close()
 
 	if fout_2:
+		pad_file_size(fout_2)
 		fout_2.close()
 
 def main(argv):
