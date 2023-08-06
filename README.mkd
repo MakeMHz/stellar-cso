@@ -1,4 +1,0 @@
-ciso
-----
-
-Based on ciso from https://github.com/jamie/ciso
