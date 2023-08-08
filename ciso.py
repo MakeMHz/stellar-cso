@@ -222,8 +222,9 @@ def compress_iso(infile):
 		fout_2.close()
 
 def main(argv):
-	infile = argv[1]
-	compress_iso(infile)
+    for i in range(1, len(argv)):
+        infile = argv[i]
+        compress_iso(infile)
 
 if __name__ == '__main__':
 	sys.exit(main(sys.argv))
