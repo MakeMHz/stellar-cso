@@ -14,6 +14,8 @@ CISO_BLOCK_SIZE = 0x800 # 2048
 CISO_HEADER_FMT = '<LLQLBBxx' # Little endian
 CISO_PLAIN_BLOCK = 0x80000000
 
+TITLE_MAX_LENGTH = 40
+
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
 
 image_offset = 0
@@ -222,19 +224,19 @@ def compress_iso(infile):
 		fout_2.close()
 
 # https://www.caustik.com/cxbx/download/xbe.htm
-def get_xbe_title_offset(xbe):
-	base_addr_offset  = 0x104
-	cert_addr_offset  = 0x118
+def get_xbe_title_offset(in_file, offset = 0):
+	base_addr_offset  = offset + 0x104
+	cert_addr_offset  = offset + 0x118
 	title_addr_offset = 0xc
 
-	with open(xbe, 'rb') as xbe_file:
-		xbe_file.seek(base_addr_offset)
-		base_addr = struct.unpack('<I', xbe_file.read(4))[0]
+	with open(in_file, 'rb') as f:
+		f.seek(base_addr_offset)
+		base_addr = struct.unpack('<I', f.read(4))[0]
 
-		xbe_file.seek(cert_addr_offset)
-		cert_addr = struct.unpack('<I', xbe_file.read(4))[0]
+		f.seek(cert_addr_offset)
+		cert_addr = struct.unpack('<I', f.read(4))[0]
 
-	return cert_addr - base_addr + title_addr_offset
+	return offset + (cert_addr - base_addr + title_addr_offset)
 
 def is_xbe_file(xbe):
 	if not os.path.isfile(xbe):
@@ -248,9 +250,67 @@ def is_xbe_file(xbe):
 
 	return True
 
+def get_default_xbe_file_offset_in_iso(iso_file):
+	return get_file_offset_in_iso(iso_file, 'default.xbe')
+
+def get_file_offset_in_iso(iso_file, search_file):
+	global image_offset
+
+	sector_size          = 0x800
+	iso_header_offset    = 0x10000
+	iso_header_magic_len = 20
+	filename_offset      = 14
+
+	with open(iso_file, 'rb') as f:
+		detect_iso_type(f)
+
+		# seek to root dir
+		f.seek(image_offset + iso_header_offset + iso_header_magic_len)
+		root_dir_offset = image_offset + struct.unpack('<I', f.read(4))[0] * sector_size
+		f.seek(root_dir_offset)
+
+		l_offset = 0
+		dword    = 4
+
+		# loop through root dir entries
+		while True:
+			l_offset = struct.unpack('<H', f.read(2))[0]
+
+			# end of dir entries
+			if l_offset == 0xffff:
+				break
+
+			r_offset     = struct.unpack('<H', f.read(2))[0]
+			start_sector = struct.unpack('<I', f.read(4))[0]
+			file_size    = struct.unpack('<I', f.read(4))[0]
+			attribs      = struct.unpack('<B', f.read(1))[0]
+			filename_len = struct.unpack('<B', f.read(1))[0]
+			filename     = f.read(filename_len).decode('utf-8')
+
+			#print("entry:", format(l_offset), format(r_offset), format(start_sector), format(file_size), format(attribs), format(filename_len), filename)
+
+			# entries are aligned 4 bytes
+			next_offset = (dword - ((filename_offset + filename_len) % dword)) % dword
+			f.seek(next_offset, os.SEEK_CUR)
+
+			# our file was found, return the abs offset
+			if filename == search_file:
+				return image_offset + start_sector * sector_size
+
+	# entry wasn't found
+	return 0
+
+def read_default_xbe_title_from_iso(iso_file):
+	xbe_offset   = get_default_xbe_file_offset_in_iso(iso_file)
+	title_offset = get_xbe_title_offset(iso_file, xbe_offset)
+
+	with open(iso_file, 'rb') as f:
+		f.seek(title_offset)
+		title_bytes = f.read(TITLE_MAX_LENGTH * 2).decode('utf-16-le')
+		return title_bytes
+
 def gen_attach_xbe(iso_file):
-	title         = os.path.splitext(os.path.basename(iso_file))[0]
-	title_len_max = 40
+	title         = read_default_xbe_title_from_iso(iso_file)
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = os.path.dirname(os.path.abspath(iso_file)) + '/default.xbe'
 
@@ -258,15 +318,15 @@ def gen_attach_xbe(iso_file):
 		return
 
 	title_offset = get_xbe_title_offset(in_file_name)
-	title = title[0:title_len_max]
+	title = title[0:TITLE_MAX_LENGTH]
 
 	with open(in_file_name, 'rb') as in_xbe:
 		with open(out_file_name, 'wb') as out_xbe:
 			before = in_xbe.read(title_offset)
-			in_xbe.seek(title_len_max * 2, os.SEEK_CUR)
+			in_xbe.seek(TITLE_MAX_LENGTH * 2, os.SEEK_CUR)
 			after = in_xbe.read()
 
-			title = title.ljust(title_len_max, "\x00")
+			title = title.ljust(TITLE_MAX_LENGTH, "\x00")
 			title_bytes = title.encode('utf-16-le')
 
 			out_xbe.write(before)
