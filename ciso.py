@@ -320,6 +320,8 @@ def gen_attach_xbe(iso_file):
 	title = read_default_xbe_title_from_iso(iso_file)
 	title = title[0:TITLE_MAX_LENGTH]
 
+	print("Generating default.xbe with title:", title)
+
 	with open(in_file_name, 'rb') as in_xbe:
 		with open(out_file_name, 'wb') as out_xbe:
 			before = in_xbe.read(title_offset)
