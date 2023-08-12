@@ -249,10 +249,6 @@ def is_xbe_file(xbe):
 	return True
 
 def gen_attach_xbe(argv):
-	title_len_max = 40
-	in_file_name  = 'attach_cso.xbe'
-	out_file_name = 'default.xbe'
-
 	try:
 		if argv[1]:
 			iso_file = argv[1]
@@ -264,7 +260,11 @@ def gen_attach_xbe(argv):
 		if argv[2]:
 			title = argv[2]
 	except IndexError:
-		title = os.path.splitext(iso_file)[0]
+		title = os.path.splitext(os.path.basename(iso_file))[0]
+
+	title_len_max = 40
+	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
+	out_file_name = os.path.dirname(os.path.abspath(iso_file)) + '/default.xbe'
 
 	if not is_xbe_file(in_file_name):
 		return
