@@ -221,9 +221,74 @@ def compress_iso(infile):
 		pad_file_size(fout_2)
 		fout_2.close()
 
+# https://www.caustik.com/cxbx/download/xbe.htm
+def get_xbe_title_offset(xbe):
+	base_addr_offset  = 0x104
+	cert_addr_offset  = 0x118
+	title_addr_offset = 0xc
+
+	with open(xbe, 'rb') as xbe_file:
+		xbe_file.seek(base_addr_offset)
+		base_addr = struct.unpack('<I', xbe_file.read(4))[0]
+
+		xbe_file.seek(cert_addr_offset)
+		cert_addr = struct.unpack('<I', xbe_file.read(4))[0]
+
+	return cert_addr - base_addr + title_addr_offset
+
+def is_xbe_file(xbe):
+	if not os.path.isfile(xbe):
+		return False
+
+	with open(xbe, 'rb') as xbe_file:
+		magic = xbe_file.read(4).decode("utf-8")
+
+		if magic != 'XBEH':
+			return False
+
+	return True
+
+def gen_attach_xbe(argv):
+	title_len_max = 40
+	in_file_name  = 'attach_cso.xbe'
+	out_file_name = 'default.xbe'
+
+	try:
+		if argv[1]:
+			iso_file = argv[1]
+	except IndexError:
+		print("No ISO file provided")
+		sys.exit(2)
+
+	try:
+		if argv[2]:
+			title = argv[2]
+	except IndexError:
+		title = os.path.splitext(iso_file)[0]
+
+	if not is_xbe_file(in_file_name):
+		return
+
+	title_offset = get_xbe_title_offset(in_file_name)
+	title = title[0:title_len_max]
+
+	with open(in_file_name, 'rb') as in_xbe:
+		with open(out_file_name, 'wb') as out_xbe:
+			before = in_xbe.read(title_offset)
+			in_xbe.seek(title_len_max * 2, os.SEEK_CUR)
+			after = in_xbe.read()
+
+			title = title.ljust(title_len_max, "\x00")
+			title_bytes = title.encode('utf-16-le')
+
+			out_xbe.write(before)
+			out_xbe.write(title_bytes)
+			out_xbe.write(after)
+
 def main(argv):
 	infile = argv[1]
 	compress_iso(infile)
+	gen_attach_xbe(argv)
 
 if __name__ == '__main__':
 	sys.exit(main(sys.argv))
