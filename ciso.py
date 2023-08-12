@@ -248,20 +248,8 @@ def is_xbe_file(xbe):
 
 	return True
 
-def gen_attach_xbe(argv):
-	try:
-		if argv[1]:
-			iso_file = argv[1]
-	except IndexError:
-		print("No ISO file provided")
-		sys.exit(2)
-
-	try:
-		if argv[2]:
-			title = argv[2]
-	except IndexError:
-		title = os.path.splitext(os.path.basename(iso_file))[0]
-
+def gen_attach_xbe(iso_file):
+	title         = os.path.splitext(os.path.basename(iso_file))[0]
 	title_len_max = 40
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = os.path.dirname(os.path.abspath(iso_file)) + '/default.xbe'
@@ -288,7 +276,7 @@ def gen_attach_xbe(argv):
 def main(argv):
 	infile = argv[1]
 	compress_iso(infile)
-	gen_attach_xbe(argv)
+	gen_attach_xbe(infile)
 
 if __name__ == '__main__':
 	sys.exit(main(sys.argv))
