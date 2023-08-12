@@ -310,7 +310,6 @@ def read_default_xbe_title_from_iso(iso_file):
 		return title_bytes
 
 def gen_attach_xbe(iso_file):
-	title         = read_default_xbe_title_from_iso(iso_file)
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = os.path.dirname(os.path.abspath(iso_file)) + '/default.xbe'
 
@@ -318,6 +317,7 @@ def gen_attach_xbe(iso_file):
 		return
 
 	title_offset = get_xbe_title_offset(in_file_name)
+	title = read_default_xbe_title_from_iso(iso_file)
 	title = title[0:TITLE_MAX_LENGTH]
 
 	with open(in_file_name, 'rb') as in_xbe:
