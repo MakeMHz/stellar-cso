@@ -241,9 +241,9 @@ def is_xbe_file(xbe):
 		return False
 
 	with open(xbe, 'rb') as xbe_file:
-		magic = xbe_file.read(4).decode("utf-8")
+		magic = xbe_file.read(4)
 
-		if magic != 'XBEH':
+		if magic != b'XBEH':
 			return False
 
 	return True
