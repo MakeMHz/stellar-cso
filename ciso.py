@@ -425,7 +425,7 @@ def gen_attach_xbe(iso_file):
 		out_bytes[new_sect_addr: new_sect_addr + new_sect_len] = (
 			old_section +
 			title_img_sect_header_bytes +
-			bytearray(title_img_sect_name.encode('utf-8')) +
+			bytearray(title_img_sect_name.encode()) +
 			b'\0'
 		)
 
