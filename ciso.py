@@ -253,6 +253,7 @@ def is_xbe_file(xbe):
 def get_default_xbe_file_offset_in_iso(iso_file):
 	return get_file_offset_in_iso(iso_file, 'default.xbe')
 
+# only looks in root dir
 def get_file_offset_in_iso(iso_file, search_file):
 	global image_offset
 
@@ -289,7 +290,7 @@ def get_file_offset_in_iso(iso_file, search_file):
 
 			#print("entry:", format(l_offset), format(r_offset), format(start_sector), format(file_size), format(attribs), format(filename_len), filename)
 
-			# entries are aligned 4 bytes
+			# entries are aligned on 4 byte bounderies
 			next_offset = (dword - ((filename_offset + filename_len) % dword)) % dword
 			f.seek(next_offset, os.SEEK_CUR)
 
@@ -301,7 +302,11 @@ def get_file_offset_in_iso(iso_file, search_file):
 	return 0
 
 def read_default_xbe_title_from_iso(iso_file):
-	xbe_offset   = get_default_xbe_file_offset_in_iso(iso_file)
+	xbe_offset = get_default_xbe_file_offset_in_iso(iso_file)
+
+	if xbe_offset == 0:
+		return os.path.splitext(os.path.basename(iso_file))[0]
+
 	title_offset = get_xbe_title_offset(iso_file, xbe_offset)
 
 	with open(iso_file, 'rb') as f:
@@ -317,6 +322,7 @@ def gen_attach_xbe(iso_file):
 		return
 
 	title_offset = get_xbe_title_offset(in_file_name)
+
 	title = read_default_xbe_title_from_iso(iso_file)
 	title = title[0:TITLE_MAX_LENGTH]
 
