@@ -14,8 +14,6 @@ CISO_BLOCK_SIZE = 0x800 # 2048
 CISO_HEADER_FMT = '<LLQLBBxx' # Little endian
 CISO_PLAIN_BLOCK = 0x80000000
 
-TITLE_MAX_LENGTH = 40
-
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
 
 image_offset = 0
@@ -223,20 +221,7 @@ def compress_iso(infile):
 		pad_file_size(fout_2)
 		fout_2.close()
 
-# https://www.caustik.com/cxbx/download/xbe.htm
-def get_xbe_title_offset(in_file, offset = 0):
-	base_addr_offset  = offset + 0x104
-	cert_addr_offset  = offset + 0x118
-	title_addr_offset = 0xc
 
-	with open(in_file, 'rb') as f:
-		f.seek(base_addr_offset)
-		base_addr = struct.unpack('<I', f.read(4))[0]
-
-		f.seek(cert_addr_offset)
-		cert_addr = struct.unpack('<I', f.read(4))[0]
-
-	return offset + (cert_addr - base_addr + title_addr_offset)
 
 def is_xbe_file(xbe):
 	if not os.path.isfile(xbe):
@@ -261,6 +246,8 @@ def get_file_offset_in_iso(iso_file, search_file):
 	iso_header_offset    = 0x10000
 	iso_header_magic_len = 20
 	filename_offset      = 14
+
+	search_file = search_file.casefold()
 
 	with open(iso_file, 'rb') as f:
 		detect_iso_type(f)
@@ -295,24 +282,11 @@ def get_file_offset_in_iso(iso_file, search_file):
 			f.seek(next_offset, os.SEEK_CUR)
 
 			# our file was found, return the abs offset
-			if filename == search_file:
+			if filename.casefold() == search_file:
 				return image_offset + start_sector * sector_size
 
 	# entry wasn't found
 	return 0
-
-def read_default_xbe_title_from_iso(iso_file):
-	xbe_offset = get_default_xbe_file_offset_in_iso(iso_file)
-
-	if xbe_offset == 0:
-		return os.path.splitext(os.path.basename(iso_file))[0]
-
-	title_offset = get_xbe_title_offset(iso_file, xbe_offset)
-
-	with open(iso_file, 'rb') as f:
-		f.seek(title_offset)
-		title_bytes = f.read(TITLE_MAX_LENGTH * 2).decode('utf-16-le')
-		return title_bytes
 
 def gen_attach_xbe(iso_file):
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
@@ -321,25 +295,62 @@ def gen_attach_xbe(iso_file):
 	if not is_xbe_file(in_file_name):
 		return
 
-	title_offset = get_xbe_title_offset(in_file_name)
+	xbe_offset = get_default_xbe_file_offset_in_iso(iso_file)
 
-	title = read_default_xbe_title_from_iso(iso_file)
-	title = title[0:TITLE_MAX_LENGTH]
+	if xbe_offset == 0:
+		return
 
-	print("Generating default.xbe with title:", title)
+	title_max_length     = 40
+	title_img_sect_name  = '$$XTIMAGE'
 
-	with open(in_file_name, 'rb') as in_xbe:
-		with open(out_file_name, 'wb') as out_xbe:
-			before = in_xbe.read(title_offset)
-			in_xbe.seek(TITLE_MAX_LENGTH * 2, os.SEEK_CUR)
-			after = in_xbe.read()
+	# https://www.caustik.com/cxbx/download/xbe.htm
+	base_addr_offset     = 0x104
+	cert_addr_offset     = 0x118
+	cert_title_id_offset = 0x8
+	cert_title_offset    = 0xc
 
-			title = title.ljust(TITLE_MAX_LENGTH, "\x00")
-			title_bytes = title.encode('utf-16-le')
+	# pull data from source xbe
+	with open(iso_file, 'rb') as f:
+		f.seek(xbe_offset + base_addr_offset)
+		base_addr = struct.unpack('<I', f.read(4))[0]
 
-			out_xbe.write(before)
-			out_xbe.write(title_bytes)
-			out_xbe.write(after)
+		f.seek(xbe_offset + cert_addr_offset)
+		cert_addr = struct.unpack('<I', f.read(4))[0]
+
+		# title
+		title_offset = xbe_offset + (cert_addr - base_addr + cert_title_offset)
+		f.seek(title_offset)
+		title_bytes = f.read(title_max_length * 2)
+		title_bytes = title_bytes[0:title_max_length * 2]
+
+		# title id
+		title_id_offset = xbe_offset + (cert_addr - base_addr + cert_title_id_offset)
+		f.seek(title_id_offset)
+		title_id_bytes = f.read(4)
+
+
+	title_id = '{:02X}'.format(struct.unpack("<I", title_id_bytes)[0])
+	print("Generating default.xbe - Title ID:", title_id, '- Title:', title_bytes.decode('utf-16-le'))
+
+	# patch output xbe
+	with open(in_file_name, 'rb') as f:
+		out_bytes = bytearray(f.read())
+
+	base_addr = struct.unpack('<I', out_bytes[base_addr_offset: base_addr_offset + 4])[0]
+	cert_addr = struct.unpack('<I', out_bytes[cert_addr_offset: cert_addr_offset + 4])[0]
+
+	# title
+	title_offset = cert_addr - base_addr + cert_title_offset
+	out_bytes[title_offset: title_offset + title_max_length * 2] = title_bytes
+
+	# title id
+	title_id_offset = cert_addr - base_addr + cert_title_id_offset
+	out_bytes[title_id_offset: title_id_offset + 4] = title_id_bytes
+
+
+	with open(out_file_name, 'wb') as f:
+		f.write(out_bytes)
+
 
 def main(argv):
 	infile = argv[1]
