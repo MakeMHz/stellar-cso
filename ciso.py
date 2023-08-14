@@ -6,6 +6,7 @@
 import os
 import struct
 import sys
+import shutil
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -295,8 +296,10 @@ def readcstr(bytes, start):
 	return sub.decode()
 
 def gen_attach_xbe(iso_file):
+	base_dir      = os.path.dirname(os.path.abspath(iso_file))
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
-	out_file_name = os.path.dirname(os.path.abspath(iso_file)) + '/default.xbe'
+	out_file_name = base_dir + '/default.xbe'
+	iso_base_name = os.path.splitext(iso_file)[0]
 
 	if not is_xbe_file(in_file_name):
 		return
@@ -345,7 +348,6 @@ def gen_attach_xbe(iso_file):
 		# title
 		offset = cert_addr - base_addr + cert_title_offset
 		title_bytes = header_bytes[offset: offset + title_max_length * 2]
-		title_bytes = title_bytes[0:title_max_length * 2]
 
 		# title id
 		offset = cert_addr - base_addr + cert_title_id_offset
@@ -376,8 +378,16 @@ def gen_attach_xbe(iso_file):
 				f.seek(xbe_offset + raw_addr)
 				title_img_sect_bytes = f.read(raw_size)
 
-	title_id = '{:02X}'.format(struct.unpack("<I", title_id_bytes)[0])
-	print("Generating default.xbe - Title ID:", title_id, '- Title:', title_bytes.decode('utf-16-le'))
+	# we got a blank title, fallback to iso name
+	if title_bytes[0] == 0:
+		title = os.path.splitext(os.path.basename(iso_file))[0]
+		title = title.ljust(title_max_length, "\x00")
+		title_bytes = title.encode('utf-16-le')
+
+	title_decoded = title_bytes.decode('utf-16-le').replace('\0', '')
+	title_bytes   = title_bytes[0:title_max_length * 2]
+	title_id      = '{:02X}'.format(struct.unpack("<I", title_id_bytes)[0])
+	print("Generating default.xbe - Title ID:", title_id, '- Title:', title_decoded)
 
 	# patch output xbe
 	with open(in_file_name, 'rb') as f:
@@ -438,6 +448,31 @@ def gen_attach_xbe(iso_file):
 
 	with open(out_file_name, 'wb') as f:
 		f.write(out_bytes)
+
+	# move output files to sub-folder
+	cios1_file = iso_base_name + '.1.cso'
+	cios2_file = iso_base_name + '.2.cso'
+	out_dir    = base_dir + '/' + title_decoded
+	ciso1      = base_dir + '/' + cios1_file
+	ciso2      = base_dir + '/' + cios2_file
+	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
+	new_cios1  = out_dir  + '/' + cios1_file
+	new_cios2  = out_dir  + '/' + cios2_file
+
+	if not os.path.isdir(out_dir):
+		os.makedirs(out_dir)
+	if os.path.exists(out_file_name) and os.path.exists(new_file):
+		os.remove(new_file)
+	if os.path.exists(ciso2) and os.path.exists(new_cios1):
+		os.remove(new_cios1)
+	if os.path.exists(ciso2) and os.path.exists(new_cios2):
+		os.remove(new_cios2)
+	if os.path.exists(out_file_name) and not os.path.exists(new_file):
+		shutil.move(out_file_name, new_file)
+	if os.path.exists(ciso1) and not os.path.exists(new_cios1):
+		shutil.move(ciso1, new_cios1)
+	if os.path.exists(ciso2) and not os.path.exists(new_cios2):
+		shutil.move(ciso2, new_cios2)
 
 def main(argv):
 	infile = argv[1]
