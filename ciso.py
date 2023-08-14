@@ -458,8 +458,8 @@ def gen_attach_xbe(iso_file):
 	ciso1      = base_dir + '/' + cios1_file
 	ciso2      = base_dir + '/' + cios2_file
 	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
-	new_cios1  = out_dir  + '/' + cios1_file
-	new_cios2  = out_dir  + '/' + cios2_file
+	new_cios1  = out_dir  + '/' + safe_title + '.1.cso'
+	new_cios2  = out_dir  + '/' + safe_title + '.2.cso'
 
 	if not os.path.isdir(out_dir):
 		os.makedirs(out_dir)
