@@ -299,7 +299,7 @@ def gen_attach_xbe(iso_file):
 	base_dir      = os.path.dirname(os.path.abspath(iso_file))
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
-	iso_base_name = os.path.splitext(iso_file)[0]
+	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
 
 	if not is_xbe_file(in_file_name):
 		return
@@ -463,7 +463,7 @@ def gen_attach_xbe(iso_file):
 		os.makedirs(out_dir)
 	if os.path.exists(out_file_name) and os.path.exists(new_file):
 		os.remove(new_file)
-	if os.path.exists(ciso2) and os.path.exists(new_cios1):
+	if os.path.exists(ciso1) and os.path.exists(new_cios1):
 		os.remove(new_cios1)
 	if os.path.exists(ciso2) and os.path.exists(new_cios2):
 		os.remove(new_cios2)
