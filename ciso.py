@@ -300,6 +300,7 @@ def gen_attach_xbe(iso_file):
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
 	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
+	filename_len_limit = 42
 
 	if not is_xbe_file(in_file_name):
 		return
@@ -450,17 +451,18 @@ def gen_attach_xbe(iso_file):
 		f.write(out_bytes)
 
 	# move output files to sub-folder
-	keepcharacters = (' ', '.', '_')
-	safe_title = "".join(c for c in title_decoded if c.isalnum() or c in keepcharacters).rstrip()
-	new_name   = 'Game'
+	keepcharacters   = (' ', '.', '_', '-')
+	safe_title       = "".join(c for c in title_decoded if c.isalnum() or c in keepcharacters).rstrip()
+	safe_title_trunc = safe_title[0:filename_len_limit - 6]
+
 	cios1_file = iso_base_name + '.1.cso'
 	cios2_file = iso_base_name + '.2.cso'
 	out_dir    = base_dir + '/' + safe_title
 	ciso1      = base_dir + '/' + cios1_file
 	ciso2      = base_dir + '/' + cios2_file
 	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
-	new_cios1  = out_dir  + '/' + new_name + '.1.cso'
-	new_cios2  = out_dir  + '/' + new_name + '.2.cso'
+	new_cios1  = out_dir  + '/' + safe_title_trunc + '.1.cso'
+	new_cios2  = out_dir  + '/' + safe_title_trunc + '.2.cso'
 
 	if not os.path.isdir(out_dir):
 		os.makedirs(out_dir)
