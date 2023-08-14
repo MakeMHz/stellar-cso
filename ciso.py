@@ -338,7 +338,7 @@ def gen_attach_xbe(iso_file):
 	# pull data from source xbe
 	with open(iso_file, 'rb') as f:
 		f.seek(xbe_offset)
-		header_bytes = f.read(xbe_header_size)
+		header_bytes = f.read(xbe_header_size * 10)
 
 		base_addr         = struct.unpack('<I', header_bytes[base_addr_offset: base_addr_offset + 4])[0]
 		cert_addr         = struct.unpack('<I', header_bytes[cert_addr_offset: cert_addr_offset + 4])[0]
