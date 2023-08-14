@@ -450,9 +450,11 @@ def gen_attach_xbe(iso_file):
 		f.write(out_bytes)
 
 	# move output files to sub-folder
+	keepcharacters = (' ', '.', '_')
+	safe_title = "".join(c for c in title_decoded if c.isalnum() or c in keepcharacters).rstrip()
 	cios1_file = iso_base_name + '.1.cso'
 	cios2_file = iso_base_name + '.2.cso'
-	out_dir    = base_dir + '/' + title_decoded
+	out_dir    = base_dir + '/' + safe_title
 	ciso1      = base_dir + '/' + cios1_file
 	ciso2      = base_dir + '/' + cios2_file
 	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
