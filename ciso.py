@@ -7,6 +7,7 @@ import os
 import struct
 import sys
 import shutil
+import math
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -223,11 +224,12 @@ def compress_iso(infile):
 		fout_2.close()
 
 
-def is_xbe_file(xbe):
+def is_xbe_file(xbe, offset = 0):
 	if not os.path.isfile(xbe):
 		return False
 
 	with open(xbe, 'rb') as xbe_file:
+		xbe_file.seek(offset)
 		magic = xbe_file.read(4)
 
 		if magic != b'XBEH':
@@ -242,10 +244,11 @@ def get_default_xbe_file_offset_in_iso(iso_file):
 def get_file_offset_in_iso(iso_file, search_file):
 	global image_offset
 
+	dir_ent_size         = 0xe
 	sector_size          = 0x800
 	iso_header_offset    = 0x10000
-	iso_header_magic_len = 20
-	filename_offset      = 14
+	root_dir_sect_offset = 0x14
+	dword                = 4
 
 	search_file = search_file.casefold()
 
@@ -253,37 +256,49 @@ def get_file_offset_in_iso(iso_file, search_file):
 		detect_iso_type(f)
 
 		# seek to root dir
-		f.seek(image_offset + iso_header_offset + iso_header_magic_len)
-		root_dir_offset = image_offset + struct.unpack('<I', f.read(4))[0] * sector_size
+		f.seek(image_offset + iso_header_offset + root_dir_sect_offset)
+		root_dir_sect    = struct.unpack('<I', f.read(4))[0]
+		root_dir_offset  = image_offset + root_dir_sect * sector_size
+		root_dir_size    = struct.unpack('<I', f.read(4))[0]
+		root_dir_sectors = math.ceil(root_dir_size / sector_size)
 		f.seek(root_dir_offset)
 
-		l_offset = 0
-		dword    = 4
+		root_dir_bytes        = f.read(root_dir_sectors * sector_size)
+		root_dir_sector_bytes = [root_dir_bytes[i: i + sector_size] for i in range(0, len(root_dir_bytes), sector_size)]
 
 		# loop through root dir entries
-		while True:
-			l_offset = struct.unpack('<H', f.read(2))[0]
+		for sector_bytes in root_dir_sector_bytes:
+			cur_pos = 0
 
-			# end of dir entries
-			if l_offset == 0xffff:
-				break
+			while True:
+				cur_pos_diff = sector_size - cur_pos
 
-			r_offset     = struct.unpack('<H', f.read(2))[0]
-			start_sector = struct.unpack('<I', f.read(4))[0]
-			file_size    = struct.unpack('<I', f.read(4))[0]
-			attribs      = struct.unpack('<B', f.read(1))[0]
-			filename_len = struct.unpack('<B', f.read(1))[0]
-			filename     = f.read(filename_len).decode('utf-8')
+				if cur_pos_diff <= 1:
+					break
 
-			#print("entry:", format(l_offset), format(r_offset), format(start_sector), format(file_size), format(attribs), format(filename_len), filename)
+				dir_ent  = sector_bytes[cur_pos: cur_pos + dir_ent_size]
+				cur_pos += dir_ent_size
+				l_offset = struct.unpack('<H', dir_ent[0:2])[0]
 
-			# entries are aligned on 4 byte bounderies
-			next_offset = (dword - ((filename_offset + filename_len) % dword)) % dword
-			f.seek(next_offset, os.SEEK_CUR)
+				if l_offset == 0xffff:
+					break
 
-			# our file was found, return the abs offset
-			if filename.casefold() == search_file:
-				return image_offset + start_sector * sector_size
+				r_offset     = struct.unpack('<H', dir_ent[2:4])[0]
+				start_sector = struct.unpack('<I', dir_ent[4:8])[0]
+				file_size    = struct.unpack('<I', dir_ent[8:12])[0]
+				attribs      = struct.unpack('<B', dir_ent[12:13])[0]
+				filename_len = struct.unpack('<B', dir_ent[13:14])[0]
+				filename     = sector_bytes[cur_pos: cur_pos + filename_len].decode('utf-8')
+
+				#print("entry: %04X %04X %08X %02X" % (l_offset, r_offset, start_sector, attribs), file_size, filename_len, filename)
+
+				# entries are aligned on 4 byte bounderies
+				next_offset = (dword - ((dir_ent_size + filename_len) % dword)) % dword
+				cur_pos += filename_len + next_offset
+
+				# our file was found, return the abs offset
+				if filename.casefold() == search_file:
+					return image_offset + start_sector * sector_size
 
 	# entry wasn't found
 	return 0
@@ -300,7 +315,6 @@ def gen_attach_xbe(iso_file):
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
 	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
-	filename_len_limit = 42
 
 	if not is_xbe_file(in_file_name):
 		return
@@ -311,6 +325,7 @@ def gen_attach_xbe(iso_file):
 		return
 
 	# https://www.caustik.com/cxbx/download/xbe.htm
+	filename_len_limit    = 42
 	title_max_length      = 40
 	title_img_sect_name   = '$$XTIMAGE'
 	num_new_sections      = 1
@@ -382,6 +397,7 @@ def gen_attach_xbe(iso_file):
 	# we got a blank title, fallback to iso name
 	if title_bytes[0] == 0:
 		title = os.path.splitext(os.path.basename(iso_file))[0]
+		title = title[0: title_max_length].strip()
 		title = title.ljust(title_max_length, "\x00")
 		title_bytes = title.encode('utf-16-le')
 
