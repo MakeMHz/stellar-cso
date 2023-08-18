@@ -303,6 +303,55 @@ def get_file_offset_in_iso(iso_file, search_file):
 	# entry wasn't found
 	return 0
 
+# returns array with section header and raw bytes
+def get_xbe_section_bytes(xbe_file, search_section, xbe_offset = 0):
+	xbe_header_size     = 0x1000
+	section_header_size = 0x38
+	base_addr_offset    = 0x104
+	cert_addr_offset    = 0x118
+	num_sections_offset = 0x11c
+	sect_headers_offset = 0x120
+
+	ret_header_bytes = None
+	ret_raw_bytes    = None
+
+	with open(xbe_file, 'rb') as f:
+		f.seek(xbe_offset)
+		header_bytes = f.read(xbe_header_size * 10)
+
+		base_addr         = struct.unpack('<I', header_bytes[base_addr_offset: base_addr_offset + 4])[0]
+		cert_addr         = struct.unpack('<I', header_bytes[cert_addr_offset: cert_addr_offset + 4])[0]
+		num_sections      = struct.unpack('<I', header_bytes[num_sections_offset: num_sections_offset + 4])[0]
+		sect_headers_addr = struct.unpack('<I', header_bytes[sect_headers_offset: sect_headers_offset + 4])[0]
+
+		# section headers
+		for i in range(0, num_sections):
+			offset = sect_headers_addr - base_addr + i * section_header_size
+			sect_header_bytes = header_bytes[offset: offset + section_header_size]
+
+			flags     = sect_header_bytes[0:4]
+			rv_addr   = sect_header_bytes[4:8]
+			rv_size   = sect_header_bytes[8:12]
+			raw_addr  = sect_header_bytes[12:16]
+			raw_size  = sect_header_bytes[16:20]
+			name_addr = sect_header_bytes[20:24]
+
+			raw_addr  = struct.unpack('<I', raw_addr)[0]
+			raw_size  = struct.unpack('<I', raw_size)[0]
+			name_addr = struct.unpack('<I', name_addr)[0]
+
+			name_offset = name_addr - base_addr
+			name = readcstr(header_bytes, name_offset)
+
+			# title image section
+			if name == search_section:
+				ret_header_bytes = sect_header_bytes
+				f.seek(xbe_offset + raw_addr)
+				ret_raw_bytes = f.read(raw_size)
+				break
+
+	return ret_header_bytes, ret_raw_bytes
+
 # read C-style strings
 def readcstr(bytes, start):
 	end = bytes.find(b'\0', start)
@@ -314,7 +363,6 @@ def gen_attach_xbe(iso_file):
 	base_dir      = os.path.dirname(os.path.abspath(iso_file))
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
-	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
 
 	if not is_xbe_file(in_file_name):
 		return
@@ -325,7 +373,6 @@ def gen_attach_xbe(iso_file):
 		return
 
 	# https://www.caustik.com/cxbx/download/xbe.htm
-	filename_len_limit    = 42
 	title_max_length      = 40
 	title_img_sect_name   = '$$XTIMAGE'
 	num_new_sections      = 1
@@ -349,17 +396,15 @@ def gen_attach_xbe(iso_file):
 	cert_title_offset     = 0xc
 
 	title_img_sect_header_bytes = None
-	title_img_sect_bytes = None
+	title_img_sect_raw_bytes    = None
 
 	# pull data from source xbe
 	with open(iso_file, 'rb') as f:
 		f.seek(xbe_offset)
 		header_bytes = f.read(xbe_header_size * 10)
 
-		base_addr         = struct.unpack('<I', header_bytes[base_addr_offset: base_addr_offset + 4])[0]
-		cert_addr         = struct.unpack('<I', header_bytes[cert_addr_offset: cert_addr_offset + 4])[0]
-		num_sections      = struct.unpack('<I', header_bytes[num_sections_offset: num_sections_offset + 4])[0]
-		sect_headers_addr = struct.unpack('<I', header_bytes[sect_headers_offset: sect_headers_offset + 4])[0]
+		base_addr = struct.unpack('<I', header_bytes[base_addr_offset: base_addr_offset + 4])[0]
+		cert_addr = struct.unpack('<I', header_bytes[cert_addr_offset: cert_addr_offset + 4])[0]
 
 		# title
 		offset = cert_addr - base_addr + cert_title_offset
@@ -369,30 +414,10 @@ def gen_attach_xbe(iso_file):
 		offset = cert_addr - base_addr + cert_title_id_offset
 		title_id_bytes = header_bytes[offset: offset + 4]
 
-		# section headers
-		for i in range(0, num_sections):
-			offset = sect_headers_addr - base_addr + i * section_header_size
-			sect_header_bytes = header_bytes[offset: offset + section_header_size]
+		sect_header_bytes, title_img_sect_raw_bytes = get_xbe_section_bytes(iso_file, title_img_sect_name, xbe_offset)
 
-			flags     = sect_header_bytes[0:4]
-			rv_addr   = sect_header_bytes[4:8]
-			rv_size   = sect_header_bytes[8:12]
-			raw_addr  = sect_header_bytes[12:16]
-			raw_size  = sect_header_bytes[16:20]
-			name_addr = sect_header_bytes[20:24]
-
-			raw_addr  = struct.unpack('<I', raw_addr)[0]
-			raw_size  = struct.unpack('<I', raw_size)[0]
-			name_addr = struct.unpack('<I', name_addr)[0]
-
-			name_offset = name_addr - base_addr
-			name = readcstr(header_bytes, name_offset)
-
-			# title image section
-			if name == title_img_sect_name:
-				title_img_sect_header_bytes = bytearray(sect_header_bytes)
-				f.seek(xbe_offset + raw_addr)
-				title_img_sect_bytes = f.read(raw_size)
+		if sect_header_bytes != None:
+			title_img_sect_header_bytes = bytearray(sect_header_bytes)
 
 	# we got a blank title, fallback to iso name
 	if title_bytes[0] == 0:
@@ -424,12 +449,12 @@ def gen_attach_xbe(iso_file):
 
 	# title image
 	# patch gore incoming
-	if title_img_sect_header_bytes != None and title_img_sect_bytes != None:
+	if title_img_sect_header_bytes != None and title_img_sect_raw_bytes != None:
 		num_sections      = struct.unpack('<I', out_bytes[num_sections_offset: num_sections_offset + 4])[0]
 		sect_headers_addr = struct.unpack('<I', out_bytes[sect_headers_offset: sect_headers_offset + 4])[0]
 
 		title_img_sect_name_len = len(title_img_sect_name)
-		title_img_size  = len(title_img_sect_bytes)
+		title_img_size  = len(title_img_sect_raw_bytes)
 		old_sect_offset = sect_headers_addr - base_addr
 		old_section     = out_bytes[old_sect_offset: old_sect_offset + section_header_size * num_sections]
 		new_sect_addr   = xbe_header_size - section_header_size * num_sections - title_img_sect_name_len - num_new_sections - section_header_size
@@ -438,15 +463,15 @@ def gen_attach_xbe(iso_file):
 		# patch title img section header
 		new_sect_digest_addr = new_sect_addr + section_header_size * num_sections + sect_digest_offset
 		new_sect_name_addr   = new_sect_addr + new_sect_len - title_img_sect_name_len - 1
-		title_img_sect_header_bytes[sect_rv_addr_offset: sect_rv_addr_offset + 4] = struct.pack('<I', xbe_size + base_addr)
-		title_img_sect_header_bytes[sect_rv_size_offset: sect_rv_size_offset + 4] = struct.pack('<I', title_img_size)
-		title_img_sect_header_bytes[sect_raw_addr_offset: sect_raw_addr_offset + 4] = struct.pack('<I', xbe_size)
-		title_img_sect_header_bytes[sect_raw_size_offset: sect_raw_size_offset + 4] = struct.pack('<I', title_img_size)
+		title_img_sect_header_bytes[sect_rv_addr_offset: sect_rv_addr_offset + 4]     = struct.pack('<I', xbe_size + base_addr)
+		title_img_sect_header_bytes[sect_rv_size_offset: sect_rv_size_offset + 4]     = struct.pack('<I', title_img_size)
+		title_img_sect_header_bytes[sect_raw_addr_offset: sect_raw_addr_offset + 4]   = struct.pack('<I', xbe_size)
+		title_img_sect_header_bytes[sect_raw_size_offset: sect_raw_size_offset + 4]   = struct.pack('<I', title_img_size)
 		title_img_sect_header_bytes[sect_name_addr_offset: sect_name_addr_offset + 4] = struct.pack('<I', new_sect_name_addr + base_addr)
-		title_img_sect_header_bytes[sect_name_ref_offset: sect_name_ref_offset + 4] = bytearray(4)
-		title_img_sect_header_bytes[sect_digest_offset: sect_digest_offset + 20] = bytearray(20)
-		title_img_sect_header_bytes[sect_head_ref_offset: sect_head_ref_offset + 4] = struct.pack('<I', new_sect_digest_addr + base_addr)
-		title_img_sect_header_bytes[sect_tail_ref_offset: sect_tail_ref_offset + 4] = struct.pack('<I', new_sect_digest_addr + 2 + base_addr)
+		title_img_sect_header_bytes[sect_name_ref_offset: sect_name_ref_offset + 4]   = bytearray(4)
+		title_img_sect_header_bytes[sect_digest_offset: sect_digest_offset + 20]      = bytearray(20)
+		title_img_sect_header_bytes[sect_head_ref_offset: sect_head_ref_offset + 4]   = struct.pack('<I', new_sect_digest_addr + base_addr)
+		title_img_sect_header_bytes[sect_tail_ref_offset: sect_tail_ref_offset + 4]   = struct.pack('<I', new_sect_digest_addr + 2 + base_addr)
 
 		# placed at the end of the xbe header
 		out_bytes[new_sect_addr: new_sect_addr + new_sect_len] = (
@@ -461,15 +486,26 @@ def gen_attach_xbe(iso_file):
 		out_bytes[sect_headers_offset: sect_headers_offset + 4] = struct.pack('<I', new_sect_addr + base_addr)
 		out_bytes[xbe_img_size_offset: xbe_img_size_offset + 4] = struct.pack('<I', xbe_size + title_img_size + base_addr)
 
-		out_bytes += title_img_sect_bytes
+		out_bytes += title_img_sect_raw_bytes
 
 	with open(out_file_name, 'wb') as f:
 		f.write(out_bytes)
 
-	# move output files to sub-folder
+	return title_decoded
+
+# move output files to sub-folder
+def move_output_files(iso_file, output_name = '', len_limit = 255):
+	base_dir      = os.path.dirname(os.path.abspath(iso_file))
+	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
+	out_file_name = base_dir + '/default.xbe'
+
+	if not output_name:
+		output_name = os.path.splitext(os.path.basename(iso_file))[0]
+		output_name = output_name.strip()
+
 	keepcharacters   = (' ', '.', '_', '-')
-	safe_title       = "".join(c for c in title_decoded if c.isalnum() or c in keepcharacters).rstrip()
-	safe_title_trunc = safe_title[0:filename_len_limit - 6]
+	safe_title       = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
+	safe_title_trunc = safe_title[0:len_limit - 6]
 
 	cios1_file = iso_base_name + '.1.cso'
 	cios2_file = iso_base_name + '.2.cso'
@@ -498,7 +534,10 @@ def gen_attach_xbe(iso_file):
 def main(argv):
 	infile = argv[1]
 	compress_iso(infile)
-	gen_attach_xbe(infile)
+	title = gen_attach_xbe(infile)
+
+	if title:
+		move_output_files(infile, title, 42)
 
 if __name__ == '__main__':
 	sys.exit(main(sys.argv))
