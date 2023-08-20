@@ -237,9 +237,6 @@ def is_xbe_file(xbe, offset = 0):
 
 	return True
 
-def get_default_xbe_file_offset_in_iso(iso_file):
-	return get_file_offset_in_iso(iso_file, 'default.xbe')
-
 # only looks in root dir
 def get_file_offset_in_iso(iso_file, search_file):
 	global image_offset
@@ -359,7 +356,7 @@ def readcstr(bytes, start):
 
 	return sub.decode()
 
-def gen_attach_xbe(iso_file):
+def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe'):
 	base_dir      = os.path.dirname(os.path.abspath(iso_file))
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
@@ -367,7 +364,7 @@ def gen_attach_xbe(iso_file):
 	if not is_xbe_file(in_file_name):
 		return
 
-	xbe_offset = get_default_xbe_file_offset_in_iso(iso_file)
+	xbe_offset = get_file_offset_in_iso(iso_file, iso_xbe)
 
 	if xbe_offset == 0:
 		return
@@ -428,8 +425,14 @@ def gen_attach_xbe(iso_file):
 
 	title_decoded = title_bytes.decode('utf-16-le').replace('\0', '')
 	title_bytes   = title_bytes[0:title_max_length * 2]
-	title_id      = '{:02X}'.format(struct.unpack("<I", title_id_bytes)[0])
-	print("Generating default.xbe - Title ID:", title_id, '- Title:', title_decoded)
+	title_id      = struct.unpack("<I", title_id_bytes)[0]
+
+	# Forza Motorsport override
+	if title_id == 0x584c8014: # CDX menu
+		return gen_attach_xbe(iso_file, 'Forza.xbe')
+
+	title_id_decoded = '{:02X}'.format(title_id)
+	print("Generating default.xbe - Title ID:", title_id_decoded, '- Title:', title_decoded)
 
 	# patch output xbe
 	with open(in_file_name, 'rb') as f:
