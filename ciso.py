@@ -237,34 +237,55 @@ def is_xbe_file(xbe, offset = 0):
 
 	return True
 
-# only looks in root dir
-def get_file_offset_in_iso(iso_file, search_file):
+def get_iso_root_dir_offset_and_size(iso_file):
 	global image_offset
 
-	dir_ent_size         = 0xe
-	sector_size          = 0x800
 	iso_header_offset    = 0x10000
 	root_dir_sect_offset = 0x14
-	dword                = 4
-
-	search_file = search_file.casefold()
+	sector_size          = 0x800
 
 	with open(iso_file, 'rb') as f:
 		detect_iso_type(f)
 
-		# seek to root dir
 		f.seek(image_offset + iso_header_offset + root_dir_sect_offset)
 		root_dir_sect    = struct.unpack('<I', f.read(4))[0]
 		root_dir_offset  = image_offset + root_dir_sect * sector_size
 		root_dir_size    = struct.unpack('<I', f.read(4))[0]
-		root_dir_sectors = math.ceil(root_dir_size / sector_size)
-		f.seek(root_dir_offset)
 
-		root_dir_bytes        = f.read(root_dir_sectors * sector_size)
-		root_dir_sector_bytes = [root_dir_bytes[i: i + sector_size] for i in range(0, len(root_dir_bytes), sector_size)]
+	return root_dir_offset, root_dir_size
 
-		# loop through root dir entries
-		for sector_bytes in root_dir_sector_bytes:
+def get_file_offset_in_iso(iso_file, search_file):
+	global image_offset
+
+	file_offset, file_size = get_iso_root_dir_offset_and_size(iso_file)
+
+	for item in search_file.split('\\'):
+		file_offset, file_size = get_iso_entry_offset_and_size(iso_file, item, file_offset, file_size)
+
+		if file_offset == 0 or file_size == 0:
+			return 0
+
+		file_offset += image_offset
+
+	return file_offset
+
+def get_iso_entry_offset_and_size(iso_file, search_file, dir_offset, dir_size):
+	dir_ent_size = 0xe
+	sector_size  = 0x800
+	dword        = 4
+
+	search_file = search_file.casefold()
+
+	with open(iso_file, 'rb') as f:
+		# seek to dir
+		dir_sectors = math.ceil(dir_size / sector_size)
+		f.seek(dir_offset)
+
+		dir_bytes        = f.read(dir_sectors * sector_size)
+		dir_sector_bytes = [dir_bytes[i: i + sector_size] for i in range(0, len(dir_bytes), sector_size)]
+
+		# loop through dir entries
+		for sector_bytes in dir_sector_bytes:
 			cur_pos = 0
 
 			while True:
@@ -293,12 +314,13 @@ def get_file_offset_in_iso(iso_file, search_file):
 				next_offset = (dword - ((dir_ent_size + filename_len) % dword)) % dword
 				cur_pos += filename_len + next_offset
 
-				# our file was found, return the abs offset
+				# our entry was found, return the offset
 				if filename.casefold() == search_file:
-					return image_offset + start_sector * sector_size
+					ret_offset = start_sector * sector_size
+					return ret_offset, file_size
 
 	# entry wasn't found
-	return 0
+	return 0, 0
 
 # returns array with section header and raw bytes
 def get_xbe_section_bytes(xbe_file, search_section, xbe_offset = 0):
@@ -356,7 +378,55 @@ def readcstr(bytes, start):
 
 	return sub.decode()
 
-def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe'):
+def format_title_bytes(title):
+	title_max_length = 40
+
+	title = title[0: title_max_length].strip()
+	title = title.ljust(title_max_length, "\x00")
+	title_bytes = title.encode('utf-16-le')
+
+	return title_bytes
+
+def check_title_overrides(iso_file, title_id, title):
+	default_xbe = 'default.xbe'
+
+	# Forza Motorsport + XBLA
+	if title_id == 0x584C8014: # "CDX"
+		return gen_attach_xbe(iso_file, 'Forza.xbe')
+
+	# NCAA Football 2005 + Top Spin
+	if title_id == 0x584C000F: # "CDX"
+		return gen_attach_xbe(iso_file, 'NCAA\\DEFAULT.XBE')
+
+	# Hitman 2: Silent Assassin (Rev 2)
+	if title_id == 0x45530009: # "CDX"
+		return gen_attach_xbe(iso_file, 'hm2.xbe')
+
+	# Star Wars: The Clone Wars + Tetris Worlds
+	if title_id == 0x584C000D: # "CDX"
+		return gen_attach_xbe(iso_file, 'CW\\default.xbe')
+
+	# Jade Empire (Bonus Disc)
+	if title_id == 0x4D530085: # "CDX"
+		return gen_attach_xbe(iso_file, default_xbe, 'Jade Empire (Bonus Disc)')
+
+	# LucasArts Xbox Experience Volume 01
+	if title_id == 0x4C410010: # "CDX"
+		return gen_attach_xbe(iso_file, default_xbe, 'LucasArts Xbox Experience Vol 01')
+
+	# MechAssault 2: Lone Wolf (Bonus Disc)
+	if title_id == 0x4D530083: # "CDX"
+		return gen_attach_xbe(iso_file, default_xbe, 'MechAssault 2: Lone Wolf (Bonus Disc)')
+
+	# Xbox Live Starter Kit Disc (Rev 1)
+	if title_id == 0x584C0007: # "CDX"
+		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 1)')
+
+	# Xbox Live Starter Kit Disc (Rev 3)
+	if title_id == 0x584C8010: # "CDX"
+		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 3)')
+
+def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe', alt_title = ''):
 	base_dir      = os.path.dirname(os.path.abspath(iso_file))
 	in_file_name  = os.path.dirname(os.path.abspath(__file__)) + '/attach_cso.xbe'
 	out_file_name = base_dir + '/default.xbe'
@@ -416,23 +486,24 @@ def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe'):
 		if sect_header_bytes != None:
 			title_img_sect_header_bytes = bytearray(sect_header_bytes)
 
-	# we got a blank title, fallback to iso name
-	if title_bytes[0] == 0:
+	if alt_title:
+		title_bytes = format_title_bytes(alt_title)
+	elif title_bytes[0] == 0: # we got a blank title, fallback to iso name
 		title = os.path.splitext(os.path.basename(iso_file))[0]
-		title = title[0: title_max_length].strip()
-		title = title.ljust(title_max_length, "\x00")
-		title_bytes = title.encode('utf-16-le')
+		title_bytes = format_title_bytes(title)
 
 	title_decoded = title_bytes.decode('utf-16-le').replace('\0', '')
 	title_bytes   = title_bytes[0:title_max_length * 2]
 	title_id      = struct.unpack("<I", title_id_bytes)[0]
 
-	# Forza Motorsport override
-	if title_id == 0x584c8014: # CDX menu
-		return gen_attach_xbe(iso_file, 'Forza.xbe')
+	# this indirectly calls gen_attach_xbe()
+	if not alt_title:
+		override_title = check_title_overrides(iso_file, title_id, title_decoded)
+		if override_title:
+			return override_title
 
-	title_id_decoded = '{:02X}'.format(title_id)
-	print("Generating default.xbe - Title ID:", title_id_decoded, '- Title:', title_decoded)
+	title_id_decoded = "%08X" % title_id
+	print("Generating default.xbe - Title ID:", title_id_decoded, '- Title:', title_decoded+"\n")
 
 	# patch output xbe
 	with open(in_file_name, 'rb') as f:
