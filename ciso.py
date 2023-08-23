@@ -391,39 +391,39 @@ def check_title_overrides(iso_file, title_id, title):
 	default_xbe = 'default.xbe'
 
 	# Forza Motorsport + XBLA
-	if title_id == 0x584C8014: # "CDX"
+	if title_id == 0x584C8014 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, 'Forza.xbe')
 
 	# NCAA Football 2005 + Top Spin
-	if title_id == 0x584C000F: # "CDX"
+	if title_id == 0x584C000F and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, 'NCAA\\DEFAULT.XBE')
 
 	# Hitman 2: Silent Assassin (Rev 2)
-	if title_id == 0x45530009: # "CDX"
+	if title_id == 0x45530009 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, 'hm2.xbe')
 
 	# Star Wars: The Clone Wars + Tetris Worlds
-	if title_id == 0x584C000D: # "CDX"
+	if title_id == 0x584C000D and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, 'CW\\default.xbe')
 
 	# Jade Empire (Bonus Disc)
-	if title_id == 0x4D530085: # "CDX"
+	if title_id == 0x4D530085 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, default_xbe, 'Jade Empire (Bonus Disc)')
 
 	# LucasArts Xbox Experience Volume 01
-	if title_id == 0x4C410010: # "CDX"
+	if title_id == 0x4C410010 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, default_xbe, 'LucasArts Xbox Experience Vol 01')
 
 	# MechAssault 2: Lone Wolf (Bonus Disc)
-	if title_id == 0x4D530083: # "CDX"
+	if title_id == 0x4D530083 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, default_xbe, 'MechAssault 2: Lone Wolf (Bonus Disc)')
 
 	# Xbox Live Starter Kit Disc (Rev 1)
-	if title_id == 0x584C0007: # "CDX"
+	if title_id == 0x584C0007 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 1)')
 
 	# Xbox Live Starter Kit Disc (Rev 3)
-	if title_id == 0x584C8010: # "CDX"
+	if title_id == 0x584C8010 and title == 'CDX': # "CDX"
 		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 3)')
 
 def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe', alt_title = ''):
