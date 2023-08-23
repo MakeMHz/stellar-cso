@@ -391,40 +391,68 @@ def check_title_overrides(iso_file, title_id, title):
 	default_xbe = 'default.xbe'
 
 	# Forza Motorsport + XBLA
-	if title_id == 0x584C8014 and title == 'CDX': # "CDX"
+	if title_id == 0x584C8014 and title == 'CDX':
 		return gen_attach_xbe(iso_file, 'Forza.xbe')
 
 	# NCAA Football 2005 + Top Spin
-	if title_id == 0x584C000F and title == 'CDX': # "CDX"
-		return gen_attach_xbe(iso_file, 'NCAA\\DEFAULT.XBE')
+	if title_id == 0x584C000F and title == 'CDX':
+		return gen_attach_xbe(iso_file, 'NCAA\\DEFAULT.XBE', 'NCAA Football 2005 + Top Spin')
 
 	# Hitman 2: Silent Assassin (Rev 2)
-	if title_id == 0x45530009 and title == 'CDX': # "CDX"
+	if title_id == 0x45530009 and title == 'CDX':
 		return gen_attach_xbe(iso_file, 'hm2.xbe')
 
 	# Star Wars: The Clone Wars + Tetris Worlds
-	if title_id == 0x584C000D and title == 'CDX': # "CDX"
-		return gen_attach_xbe(iso_file, 'CW\\default.xbe')
+	if title_id == 0x584C000D and title == 'CDX':
+		return gen_attach_xbe(iso_file, 'CW\\default.xbe', 'StarWars: The Clone Wars + Tetris Worlds')
 
 	# Jade Empire (Bonus Disc)
-	if title_id == 0x4D530085 and title == 'CDX': # "CDX"
+	if title_id == 0x4D530085 and title == 'CDX':
 		return gen_attach_xbe(iso_file, default_xbe, 'Jade Empire (Bonus Disc)')
 
 	# LucasArts Xbox Experience Volume 01
-	if title_id == 0x4C410010 and title == 'CDX': # "CDX"
+	if title_id == 0x4C410010 and title == 'CDX':
 		return gen_attach_xbe(iso_file, default_xbe, 'LucasArts Xbox Experience Vol 01')
 
 	# MechAssault 2: Lone Wolf (Bonus Disc)
-	if title_id == 0x4D530083 and title == 'CDX': # "CDX"
+	if title_id == 0x4D530083 and title == 'CDX':
 		return gen_attach_xbe(iso_file, default_xbe, 'MechAssault 2: Lone Wolf (Bonus Disc)')
 
 	# Xbox Live Starter Kit Disc (Rev 1)
-	if title_id == 0x584C0007 and title == 'CDX': # "CDX"
+	if title_id == 0x584C0007 and title == 'CDX':
 		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 1)')
 
 	# Xbox Live Starter Kit Disc (Rev 3)
-	if title_id == 0x584C8010 and title == 'CDX': # "CDX"
+	if title_id == 0x584C8010 and title == 'CDX':
 		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc (Rev 3)')
+
+	# Ninja Gaiden Video + Dead or Alive X-Treme Beach Volleyball Video + DOA 3 Bonus Materials
+	if title_id == 0x54438005 and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, 'Doa3\\doa3b.xbe', 'Dead or Alive 3 Booster - DEMO')
+
+	# Outlaw Golf: 9 Holes of X-Mas
+	if title_id == 0x5655801B and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, 'OGXmas\\OLGDemo.xbe', 'Outlaw Golf: 9 Holes of X-Mas - DEMO')
+
+	# Outlaw Golf - 9 More Holes of X-Mas
+	if title_id == 0x53530006 and title == 'OUTLAW GOLF':
+		return gen_attach_xbe(iso_file, default_xbe, 'Outlaw Golf: 9 More Holes of X-Mas')
+
+	# Outlaw Golf: Holiday Golf
+	if title_id == 0x53538005 and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, 'OGXmas\\OLGDemo.xbe', 'Outlaw Golf: Holiday Golf - DEMO')
+
+	# Sega GT 2002 + Jet Set Radio Future
+	if title_id == 0x4D53003D and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, 'SegaGT.xbe', 'Sega GT 2002 + Jet Set Radio Future')
+
+	# Xbox Live Beta Starter Kit Disc v1.0
+	if title_id == 0x584C0004 and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Beta Starter Kit Disc v1.0')
+
+	# Xbox Live Starter Kit Disc
+	if title_id == 0x584C0007 and title == 'Xbox Demos':
+		return gen_attach_xbe(iso_file, default_xbe, 'Xbox Live Starter Kit Disc')
 
 def gen_attach_xbe(iso_file, iso_xbe = 'default.xbe', alt_title = ''):
 	base_dir      = os.path.dirname(os.path.abspath(iso_file))
