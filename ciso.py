@@ -168,9 +168,8 @@ def compress_iso(infile):
 		percent_period = ciso['total_blocks'] / 100
 		percent_cnt = 0
 
-		split_fout   = fout_1
-		out_bytes    = bytearray()
-		chunks_total = math.ceil(ciso['total_blocks'] / CHUNK_SIZE_SECT)
+		split_fout      = fout_1
+		out_bytes       = bytearray()
 		mp_chunks_total = math.ceil(ciso['total_bytes'] / MP_CHUNK_SIZE)
 
 		# read in several chunks at once
@@ -180,10 +179,10 @@ def compress_iso(infile):
 			del mp_chunk_data
 			mp_chunk_data_list_len = len(mp_chunk_data_list)
 			mp_chunk_data_len_list = []
-			mp_chunk_list = []
+			mp_chunk_list          = []
 
 			# split each chunk into a sectors list
-			for idx, chunk_data in enumerate(mp_chunk_data_list):
+			for chunk_data in mp_chunk_data_list:
 				sector_list = [chunk_data[i: i + CISO_BLOCK_SIZE] for i in range(0, len(chunk_data), CISO_BLOCK_SIZE)]
 				mp_chunk_data_len_list.append(len(chunk_data))
 				mp_chunk_list.append(sector_list)
@@ -195,7 +194,7 @@ def compress_iso(infile):
 
 			# setup chunk/sector mapping
 			for chunk in range(0, mp_chunk_data_list_len):
-				chunk_len = mp_chunk_data_len_list[chunk]
+				chunk_len         = mp_chunk_data_len_list[chunk]
 				chunk_sectors_len = CHUNK_SIZE_SECT
 
 				sector_list     = mp_chunk_list[chunk]
