@@ -7,6 +7,7 @@ import os
 import struct
 import sys
 import math
+import multiprocessing
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -18,6 +19,8 @@ CISO_PLAIN_BLOCK = 0x80000000
 CISO_SPLIT_SIZE = 0xFFBF6000
 CHUNK_SIZE      = 1 * 1024 * 1024 # 1MB chunk size
 CHUNK_SIZE_SECT = int(CHUNK_SIZE / CISO_BLOCK_SIZE)
+MP_NUM_CHUNKS   = 64 # number of chunks to read for multiprocessing
+MP_CHUNK_SIZE   = MP_NUM_CHUNKS * CHUNK_SIZE
 
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
 
@@ -110,8 +113,29 @@ def pad_file_size(f):
 	size = f.tell()
 	f.write(struct.pack('<B', 0x00) * (0x400 - (size & 0x3FF)))
 
+def compress_chunk(sector_list):
+	# cache a single instance of the lz4 context, per process
+	if not hasattr(compress_chunk, 'lz4_context'):
+		compress_chunk.lz4_context = lz4.frame.create_compression_context()
+
+	lz4_context   = compress_chunk.lz4_context
+	compress_list = []
+
+	for raw_data in sector_list:
+		# Compress block
+		# Compressed data will have the gzip header on it, we strip that.
+		lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
+			auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
+
+		compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
+		compress_list.append(compressed_data)
+		lz4.frame.compress_flush(lz4_context)
+
+	# this will be a list of compressed sectors
+	return compress_list
+
 def compress_iso(infile):
-	lz4_context = lz4.frame.create_compression_context()
+	pool = multiprocessing.Pool()
 
 	# Replace file extension with .cso
 	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
@@ -147,83 +171,101 @@ def compress_iso(infile):
 		split_fout   = fout_1
 		out_bytes    = bytearray()
 		chunks_total = math.ceil(ciso['total_blocks'] / CHUNK_SIZE_SECT)
+		mp_chunks_total = math.ceil(ciso['total_bytes'] / MP_CHUNK_SIZE)
 
-		for chunk in range(0, chunks_total):
-			chunk_data = fin.read(CHUNK_SIZE)
-			chunk_len  = len(chunk_data)
-			chunk_sectors_len = CHUNK_SIZE_SECT
+		# read in several chunks at once
+		for mp_chunk in range(0, mp_chunks_total):
+			mp_chunk_data = fin.read(MP_CHUNK_SIZE)
+			mp_chunk_data_list = [mp_chunk_data[i: i + CHUNK_SIZE] for i in range(0, len(mp_chunk_data), CHUNK_SIZE)]
+			del mp_chunk_data
+			mp_chunk_data_list_len = len(mp_chunk_data_list)
+			mp_chunk_data_len_list = []
+			mp_chunk_list = []
 
-			if chunk_len != CHUNK_SIZE:
-				chunk_sectors_len = int(chunk_len / CISO_BLOCK_SIZE)
+			# split each chunk into a sectors list
+			for idx, chunk_data in enumerate(mp_chunk_data_list):
+				sector_list = [chunk_data[i: i + CISO_BLOCK_SIZE] for i in range(0, len(chunk_data), CISO_BLOCK_SIZE)]
+				mp_chunk_data_len_list.append(len(chunk_data))
+				mp_chunk_list.append(sector_list)
 
-			for sector in range(0, chunk_sectors_len):
-				block = (CHUNK_SIZE_SECT * chunk) + sector
-				chunk_pos = sector * CISO_BLOCK_SIZE
+			del mp_chunk_data_list
 
-				# Check if we need to split the ISO (due to FATX limitations)
-				# TODO: Determine a better value for this.
-				if write_pos > CISO_SPLIT_SIZE:
-					# Create new file for the split
-					fout_2     = open(os.path.splitext(infile)[0] + '.2.cso', 'wb')
-					split_fout = fout_2
+			# compress several chunks at once (handed off to child processes)
+			mp_compressed_list = pool.map(compress_chunk, mp_chunk_list)
 
-					# Reset write position
-					write_pos  = 0
+			# setup chunk/sector mapping
+			for chunk in range(0, mp_chunk_data_list_len):
+				chunk_len = mp_chunk_data_len_list[chunk]
+				chunk_sectors_len = CHUNK_SIZE_SECT
 
-				# Write alignment
-				align = int(write_pos & align_m)
-				if align:
-					align = align_b - align
-					#size = split_fout.write(alignment_buffer[:align])
-					out_bytes += alignment_buffer[:align]
-					write_pos += align
+				sector_list     = mp_chunk_list[chunk]
+				compressed_list = mp_compressed_list[chunk]
 
-				# Mark offset index
-				block_index[block] = write_pos >> ciso['align']
+				if chunk_len != CHUNK_SIZE:
+					chunk_sectors_len = int(chunk_len / CISO_BLOCK_SIZE)
 
-				# Read raw data
-				raw_data = chunk_data[chunk_pos: chunk_pos + CISO_BLOCK_SIZE]
-				raw_data_size = len(raw_data)
+				# the (mostly) original sector process loop
+				for sector in range(0, chunk_sectors_len):
+					block = int(MP_CHUNK_SIZE / CISO_BLOCK_SIZE * mp_chunk) + (CHUNK_SIZE_SECT * chunk) + sector
+					#chunk_pos = sector * CISO_BLOCK_SIZE
 
-				# Compress block
-				# Compressed data will have the gzip header on it, we strip that.
-				lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
-					auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
+					# Check if we need to split the ISO (due to FATX limitations)
+					# TODO: Determine a better value for this.
+					if write_pos > CISO_SPLIT_SIZE:
+						# Create new file for the split
+						fout_2     = open(os.path.splitext(infile)[0] + '.2.cso', 'wb')
+						split_fout = fout_2
 
-				compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
-				compressed_size = len(compressed_data)
+						# Reset write position
+						write_pos = 0
 
-				lz4.frame.compress_flush(lz4_context)
+					# Write alignment
+					align = int(write_pos & align_m)
+					if align:
+						align = align_b - align
+						out_bytes += alignment_buffer[:align]
+						write_pos += align
 
-				# Ensure compressed data is smaller than raw data
-				# TODO: Find optimal block size to avoid fragmentation
-				if (compressed_size + 12) >= raw_data_size:
-					writable_data = raw_data
+					# Mark offset index
+					block_index[block] = write_pos >> ciso['align']
 
-					# Next index
-					write_pos += raw_data_size
-				else:
-					writable_data = compressed_data
+					# Read raw data
+					raw_data = sector_list[sector]
+					raw_data_size = len(raw_data)
 
-					# LZ4 block marker
-					block_index[block] |= 0x80000000
+					compressed_data = compressed_list[sector]
+					compressed_size = len(compressed_data)
 
-					# Next index
-					write_pos += compressed_size
+					# Ensure compressed data is smaller than raw data
+					# TODO: Find optimal block size to avoid fragmentation
+					if (compressed_size + 12) >= raw_data_size:
+						writable_data = raw_data
 
-				# Write data
-				out_bytes += writable_data
+						# Next index
+						write_pos += raw_data_size
+					else:
+						writable_data = compressed_data
 
-				if len(out_bytes) >= CHUNK_SIZE or write_pos > CISO_SPLIT_SIZE:
-					split_fout.write(out_bytes)
-					out_bytes.clear()
+						# LZ4 block marker
+						block_index[block] |= 0x80000000
 
-				# Progress bar
-				percent = int(round((block / (ciso['total_blocks'] + 1)) * 100))
-				if percent > percent_cnt:
-					update_progress((block / (ciso['total_blocks'] + 1)))
-					percent_cnt = percent
+						# Next index
+						write_pos += compressed_size
 
+					# Write data
+					out_bytes += writable_data
+
+					if len(out_bytes) >= CHUNK_SIZE or write_pos > CISO_SPLIT_SIZE:
+						split_fout.write(out_bytes)
+						out_bytes.clear()
+
+					# Progress bar
+					percent = int(round((block / (ciso['total_blocks'] + 1)) * 100))
+					if percent > percent_cnt:
+						update_progress((block / (ciso['total_blocks'] + 1)))
+						percent_cnt = percent
+
+		# flush left-over bytes
 		split_fout.write(out_bytes)
 
 		# TODO: Pad file to ATA block size
