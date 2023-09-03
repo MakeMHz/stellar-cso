@@ -6,6 +6,8 @@
 import os
 import struct
 import sys
+import math
+import datetime
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -19,27 +21,41 @@ CISO_PLAIN_BLOCK = 0x80000000
 image_offset = 0
 
 def get_terminal_size(fd=sys.stdout.fileno()):
-	try:
-		import fcntl, termios
-		hw = struct.unpack("hh", fcntl.ioctl(
-			fd, termios.TIOCGWINSZ, '1234'))
-	except:
-		try:
-			hw = (os.environ['LINES'], os.environ['COLUMNS'])
-		except:
-			hw = (25, 80)
-	return hw
+	columns, lines = os.get_terminal_size()
+	return (lines, columns)
 
-(console_height, console_width) = get_terminal_size()
+def update_progress(progress, speed = 0):
+	console_height, console_width = get_terminal_size()
 
-def update_progress(progress):
-	barLength = console_width - len("Progress: 100% []") - 1
-	block = int(round(barLength*progress)) + 1
-	text = "\rProgress: [{blocks}] {percent:.0f}%".format(
-			blocks="#" * block + "-" * (barLength - block),
-			percent=progress * 100)
+	speed   = sizeof_fmt(speed) + "/s"
+	percent = progress * 100
+
+	static_str_len = 14 # len("Progress:   - ")
+	percent_str    = "{:.0f}%".format(percent)
+	barLength      = console_width - static_str_len - len(percent_str) - len(speed) - 1
+	block          = math.ceil(barLength * progress)
+	block_str      = "█" * block
+	bar_len_rem    = barLength - block
+	rem_str        = "░" * bar_len_rem
+
+	if percent_str == "100%":
+		rem_str = "█" * bar_len_rem
+
+	text = "\rProgress: {blocks} {percent} - {speed}".format(
+			blocks=block_str + rem_str,
+			percent=percent_str,
+			speed=speed)
+
 	sys.stdout.write(text)
 	sys.stdout.flush()
+
+# https://stackoverflow.com/a/1094933
+def sizeof_fmt(num, suffix="B"):
+	for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+		if abs(num) < 1024.0:
+			return f"{num:3.1f}{unit}{suffix}"
+		num /= 1024.0
+	return f"{num:.1f}Yi{suffix}"
 
 def check_file_size(f):
 	global image_offset
@@ -107,6 +123,7 @@ def pad_file_size(f):
 
 def compress_iso(infile):
 	lz4_context = lz4.frame.create_compression_context()
+	start_time = datetime.datetime.now().timestamp()
 
 	# Replace file extension with .cso
 	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
@@ -136,6 +153,7 @@ def compress_iso(infile):
 		alignment_buffer = struct.pack('<B', 0x00) * 64
 
 		# Progress counters
+		blocks_total   = ciso['total_blocks'] + 1
 		percent_period = ciso['total_blocks'] / 100
 		percent_cnt = 0
 
@@ -196,9 +214,12 @@ def compress_iso(infile):
 			split_fout.write(writable_data)
 
 			# Progress bar
-			percent = int(round((block / (ciso['total_blocks'] + 1)) * 100))
+			percent_float = block / blocks_total
+			percent = int(round(percent_float * 100))
 			if percent > percent_cnt:
-				update_progress((block / (ciso['total_blocks'] + 1)))
+				# fin read speed
+				speed = block * CISO_BLOCK_SIZE / (datetime.datetime.now().timestamp() - start_time)
+				update_progress(percent_float, speed)
 				percent_cnt = percent
 
 		# TODO: Pad file to ATA block size
