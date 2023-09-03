@@ -18,7 +18,7 @@ CISO_HEADER_FMT = '<LLQLBBxx' # Little endian
 CISO_PLAIN_BLOCK = 0x80000000
 
 CISO_SPLIT_SIZE = 0xFFBF6000
-CHUNK_SIZE      = 128 * 1024 # 1MB chunk size
+CHUNK_SIZE      = 128 * 1024
 CHUNK_SIZE_SECT = int(CHUNK_SIZE / CISO_BLOCK_SIZE)
 MP_NUM_CHUNKS   = 64 # number of chunks to read for multiprocessing
 MP_CHUNK_SIZE   = MP_NUM_CHUNKS * CHUNK_SIZE
