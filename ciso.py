@@ -8,6 +8,7 @@ import struct
 import sys
 import math
 import multiprocessing
+import signal
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -113,26 +114,37 @@ def pad_file_size(f):
 	size = f.tell()
 	f.write(struct.pack('<B', 0x00) * (0x400 - (size & 0x3FF)))
 
+def child_sigint(signalnum, frame):
+	me = multiprocessing.current_process()
+	if me:
+		me.close()
+
 def compress_chunk(sector_list):
-	# cache a single instance of the lz4 context, per process
-	if not hasattr(compress_chunk, 'lz4_context'):
-		compress_chunk.lz4_context = lz4.frame.create_compression_context()
+	signal.signal(signal.SIGINT, child_sigint)
+	try:
+		# cache a single instance of the lz4 context, per process
+		if not hasattr(compress_chunk, 'lz4_context'):
+			compress_chunk.lz4_context = lz4.frame.create_compression_context()
 
-	lz4_context   = compress_chunk.lz4_context
-	compress_list = []
+		lz4_context   = compress_chunk.lz4_context
+		compress_list = []
 
-	for raw_data in sector_list:
-		# Compress block
-		# Compressed data will have the gzip header on it, we strip that.
-		lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
-			auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
+		for raw_data in sector_list:
+			# Compress block
+			# Compressed data will have the gzip header on it, we strip that.
+			lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
+				auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
 
-		compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
-		compress_list.append(compressed_data)
-		lz4.frame.compress_flush(lz4_context)
+			compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
+			compress_list.append(compressed_data)
+			lz4.frame.compress_flush(lz4_context)
 
-	# this will be a list of compressed sectors
-	return compress_list
+		# this will be a list of compressed sectors
+		return compress_list
+	except:
+		me = multiprocessing.current_process()
+		if me:
+			me.close()
 
 def compress_iso(infile):
 	pool = multiprocessing.Pool()
@@ -189,8 +201,13 @@ def compress_iso(infile):
 
 			del mp_chunk_data_list
 
-			# compress several chunks at once (handed off to child processes)
-			mp_compressed_list = pool.map(compress_chunk, mp_chunk_list)
+			try:
+				# compress several chunks at once (handed off to child processes)
+				mp_compressed_list = pool.map(compress_chunk, mp_chunk_list)
+			except:
+				pool.terminate()
+				pool.join()
+				sys.exit()
 
 			# setup chunk/sector mapping
 			for chunk in range(0, mp_chunk_data_list_len):
@@ -292,4 +309,5 @@ def main(argv):
 	compress_iso(infile)
 
 if __name__ == '__main__':
+	multiprocessing.freeze_support()
 	sys.exit(main(sys.argv))
