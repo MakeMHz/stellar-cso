@@ -6,6 +6,9 @@
 import os
 import struct
 import sys
+import shutil
+import platform
+import subprocess
 import lz4.frame
 
 CISO_MAGIC = 0x4F534943 # CISO
@@ -105,8 +108,69 @@ def pad_file_size(f):
 	size = f.tell()
 	f.write(struct.pack('<B', 0x00) * (0x400 - (size & 0x3FF)))
 
+def is_redump(iso_file):
+	with open(iso_file, 'rb') as f:
+		# Detect if the image is a REDUMP image
+		f.seek(0x18310000)
+		buffer = f.read(20)
+		if buffer == b"MICROSOFT*XBOX*MEDIA":
+			return True
+	return False
+
+def convert_to_xiso(iso_file):
+	os_name = platform.system()
+	if os_name == 'Windows':
+		iso_file = conert_to_xiso_win(iso_file)
+	elif os_name == 'Darwin':
+		pass
+	elif os_name == 'Linux':
+		pass
+	return iso_file
+
+def conert_to_xiso_win(iso_file):
+	abs_file  = os.path.abspath(iso_file)
+	basename  = os.path.basename(abs_file)
+	dirname   = os.path.dirname(abs_file)
+	old_file  = abs_file + '.old'
+	basename_split = os.path.splitext(basename)[0]
+	xiso_file = dirname + '/' + basename_split + '.xiso.iso'
+
+	extract_iso_exe = os.path.dirname(os.path.abspath(__file__)) + '/' + 'extract-xiso.exe'
+
+	if not os.path.isfile(extract_iso_exe):
+		return iso_file
+
+	if os.path.isfile(old_file):
+		os.remove(old_file)
+
+	cmd = (
+		extract_iso_exe,
+		'-r',
+		'-m',
+		abs_file
+	)
+
+	res = subprocess.run(cmd, shell=True)
+
+	if os.path.isfile(xiso_file):
+		os.remove(xiso_file)
+
+	shutil.move(abs_file, xiso_file)
+	shutil.move(old_file, abs_file)
+
+	return xiso_file
+
 def compress_iso(infile):
 	lz4_context = lz4.frame.create_compression_context()
+	xiso_should_rm = False
+
+	if is_redump(infile):
+		print("Converting to XISO...")
+		abs_xiso_file = os.path.abspath(convert_to_xiso(infile))
+		abs_infile    = os.path.abspath(infile)
+		if abs_xiso_file != abs_infile and os.path.isfile(abs_xiso_file) and os.path.isfile(abs_infile):
+			xiso_should_rm = True
+			infile = abs_xiso_file
 
 	# Replace file extension with .cso
 	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
@@ -220,6 +284,9 @@ def compress_iso(infile):
 	if fout_2:
 		pad_file_size(fout_2)
 		fout_2.close()
+
+	if xiso_should_rm:
+		os.remove(infile)
 
 def main(argv):
 	infile = argv[1]
