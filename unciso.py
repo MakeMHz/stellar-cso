@@ -120,8 +120,10 @@ def decompress_cso(infile):
 		raw_data = fin.read(read_len)
 
 		if is_lz4_frame:
-			frame_size = struct.unpack('<I', raw_data[0: 4])[0]
-			raw_data   = raw_data[0: frame_size + 4]
+			frame_size  = struct.unpack('<I', raw_data[0: 4])[0]
+			is_comp     = frame_size & 0x80000000
+			frame_size &= 0x7fffffff
+			raw_data    = raw_data[0: frame_size + 4] # strip align padding
 
 			raw_data = lz4_frame_header + raw_data + lz4_frame_end
 
