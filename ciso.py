@@ -137,6 +137,8 @@ def compress_chunk(chunk):
 			compress_chunk.inshm = multiprocessing.shared_memory.SharedMemory(name=SHM_IN_SECT_NAME)
 		if not hasattr(compress_chunk, 'cmpshm'):
 			compress_chunk.cmpshm = multiprocessing.shared_memory.SharedMemory(name=SHM_CMP_SECT_NAME)
+		if not hasattr(compress_chunk, 'empty_sect'):
+			compress_chunk.empty_sect = b"\0" * CISO_BLOCK_SIZE
 
 		inshm  = compress_chunk.inshm
 		cmpshm = compress_chunk.cmpshm
@@ -154,12 +156,15 @@ def compress_chunk(chunk):
 			sector_offset = sector * CISO_BLOCK_SIZE
 			raw_data = chunk_data[sector_offset: sector_offset + CISO_BLOCK_SIZE]
 
-			# Compress block
-			# Compressed data will have the gzip header on it, we strip that.
-			lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
-				auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
-			compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
-			lz4.frame.compress_flush(lz4_context)
+			if raw_data == compress_chunk.empty_sect:
+				compressed_data = b"\x12\x00\x00\x00\x1F\x00\x01\x00\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xEE\x50\x00\x00\x00\x00\x00"
+			else:
+				# Compress block
+				# Compressed data will have the gzip header on it, we strip that.
+				lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
+					auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
+				compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
+				lz4.frame.compress_flush(lz4_context)
 
 			out_bytes += compressed_data
 			compressed_size = len(compressed_data)
