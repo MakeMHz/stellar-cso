@@ -8,6 +8,7 @@ import struct
 import sys
 import math
 import multiprocessing
+import multiprocessing.shared_memory
 import signal
 import lz4.frame
 
@@ -19,9 +20,16 @@ CISO_PLAIN_BLOCK = 0x80000000
 
 CISO_SPLIT_SIZE = 0xFFBF6000
 CHUNK_SIZE      = 128 * 1024
-CHUNK_SIZE_SECT = int(CHUNK_SIZE / CISO_BLOCK_SIZE)
-MP_NUM_CHUNKS   = 64 # number of chunks to read for multiprocessing
-MP_CHUNK_SIZE   = MP_NUM_CHUNKS * CHUNK_SIZE
+CHUNK_NUM_SECT  = int(CHUNK_SIZE / CISO_BLOCK_SIZE)
+
+MP_NUM_CHUNKS = 64 # number of chunks to read for multiprocessing
+MP_CHUNK_SIZE = MP_NUM_CHUNKS * CHUNK_SIZE
+MP_CHUNK_SECT = MP_CHUNK_SIZE / CISO_BLOCK_SIZE
+
+CMP_LIST_SMH_PAD  = 4 # pad bytes for each sector in compressed list shm
+CMP_LIST_SMH_PAD_SIZE = (CISO_BLOCK_SIZE + CMP_LIST_SMH_PAD) * CHUNK_NUM_SECT * MP_NUM_CHUNKS
+SHM_IN_SECT_NAME  = 'ciso_shm_in_sectors'
+SHM_CMP_SECT_NAME = 'ciso_shm_cmp_sectors'
 
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
 
@@ -119,35 +127,56 @@ def child_sigint(signalnum, frame):
 	if me:
 		me.close()
 
-def compress_chunk(sector_list):
+def compress_chunk(chunk):
 	signal.signal(signal.SIGINT, child_sigint)
 	try:
 		# cache a single instance of the lz4 context, per process
 		if not hasattr(compress_chunk, 'lz4_context'):
 			compress_chunk.lz4_context = lz4.frame.create_compression_context()
+		if not hasattr(compress_chunk, 'inshm'):
+			compress_chunk.inshm = multiprocessing.shared_memory.SharedMemory(name=SHM_IN_SECT_NAME)
+		if not hasattr(compress_chunk, 'cmpshm'):
+			compress_chunk.cmpshm = multiprocessing.shared_memory.SharedMemory(name=SHM_CMP_SECT_NAME)
 
-		lz4_context   = compress_chunk.lz4_context
-		compress_list = []
+		inshm  = compress_chunk.inshm
+		cmpshm = compress_chunk.cmpshm
+		lz4_context = compress_chunk.lz4_context
+		compressed_sizes = []
+		out_bytes = bytearray()
 
-		for raw_data in sector_list:
+		in_offset  = chunk * CHUNK_SIZE
+		out_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SMH_PAD + in_offset
+
+		chunk_data  = bytearray(inshm.buf[in_offset: in_offset + CHUNK_SIZE])
+		num_sectors = math.ceil(len(chunk_data) / CISO_BLOCK_SIZE)
+
+		for sector in range(num_sectors):
+			sector_offset = sector * CISO_BLOCK_SIZE
+			raw_data = chunk_data[sector_offset: sector_offset + CISO_BLOCK_SIZE]
+
 			# Compress block
 			# Compressed data will have the gzip header on it, we strip that.
 			lz4.frame.compress_begin(lz4_context, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX,
 				auto_flush=True, content_checksum=False, block_checksum=False, block_linked=False, source_size=False)
-
 			compressed_data = lz4.frame.compress_chunk(lz4_context, raw_data, return_bytearray=True)
-			compress_list.append(compressed_data)
 			lz4.frame.compress_flush(lz4_context)
 
-		# this will be a list of compressed sectors
-		return compress_list
+			out_bytes += compressed_data
+			compressed_size = len(compressed_data)
+			compressed_sizes.append(compressed_size)
+
+		cmpshm.buf[out_offset: out_offset + len(out_bytes)] = out_bytes
+		return compressed_sizes
+
 	except:
 		me = multiprocessing.current_process()
 		if me:
 			me.close()
 
 def compress_iso(infile):
-	pool = multiprocessing.Pool()
+	pool   = multiprocessing.Pool()
+	inshm  = multiprocessing.shared_memory.SharedMemory(name=SHM_IN_SECT_NAME, create=True, size=MP_CHUNK_SIZE)
+	cmpshm = multiprocessing.shared_memory.SharedMemory(name=SHM_CMP_SECT_NAME, create=True, size=CMP_LIST_SMH_PAD_SIZE)
 
 	# Replace file extension with .cso
 	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
@@ -184,46 +213,42 @@ def compress_iso(infile):
 		out_bytes       = bytearray()
 		mp_chunks_total = math.ceil(ciso['total_bytes'] / MP_CHUNK_SIZE)
 
+		chunks_range = range(MP_NUM_CHUNKS)
+
 		# read in several chunks at once
-		for mp_chunk in range(0, mp_chunks_total):
-			mp_chunk_data = fin.read(MP_CHUNK_SIZE)
-			mp_chunk_data_list = [mp_chunk_data[i: i + CHUNK_SIZE] for i in range(0, len(mp_chunk_data), CHUNK_SIZE)]
-			del mp_chunk_data
-			mp_chunk_data_list_len = len(mp_chunk_data_list)
-			mp_chunk_data_len_list = []
-			mp_chunk_list          = []
+		for mp_chunk in range(mp_chunks_total):
+			mp_chunk_data     = fin.read(MP_CHUNK_SIZE)
+			mp_chunk_data_len = len(mp_chunk_data)
+			map_range         = chunks_range
 
-			# split each chunk into a sectors list
-			for chunk_data in mp_chunk_data_list:
-				sector_list = [chunk_data[i: i + CISO_BLOCK_SIZE] for i in range(0, len(chunk_data), CISO_BLOCK_SIZE)]
-				mp_chunk_data_len_list.append(len(chunk_data))
-				mp_chunk_list.append(sector_list)
+			if mp_chunk_data_len != MP_CHUNK_SIZE:
+				map_range = range(math.ceil(mp_chunk_data_len / CHUNK_SIZE))
 
-			del mp_chunk_data_list
+			inshm.buf[0: mp_chunk_data_len] = mp_chunk_data
 
 			try:
-				# compress several chunks at once (handed off to child processes)
-				mp_compressed_list = pool.map(compress_chunk, mp_chunk_list)
+				# compress several chunks at once
+				compressed_sizes = pool.map(compress_chunk, map_range)
 			except:
 				pool.terminate()
 				pool.join()
 				sys.exit()
 
-			# setup chunk/sector mapping
-			for chunk in range(0, mp_chunk_data_list_len):
-				chunk_len         = mp_chunk_data_len_list[chunk]
-				chunk_sectors_len = CHUNK_SIZE_SECT
+			inshm_bytes  = bytearray(inshm.buf)
+			cmpshm_bytes = bytearray(cmpshm.buf)
 
-				sector_list     = mp_chunk_list[chunk]
-				compressed_list = mp_compressed_list[chunk]
+			for chunk, compressed_sizes_list in enumerate(compressed_sizes):
+				chunk_offset     = chunk * CHUNK_SIZE
+				cmp_chunk_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SMH_PAD + chunk_offset
+				cmp_sect_offset  = 0
 
-				if chunk_len != CHUNK_SIZE:
-					chunk_sectors_len = int(chunk_len / CISO_BLOCK_SIZE)
+				for sector, compressed_size in enumerate(compressed_sizes_list):
+					block = int(MP_CHUNK_SECT * mp_chunk) + (CHUNK_NUM_SECT * chunk) + sector
 
-				# the (mostly) original sector process loop
-				for sector in range(0, chunk_sectors_len):
-					block = int(MP_CHUNK_SIZE / CISO_BLOCK_SIZE * mp_chunk) + (CHUNK_SIZE_SECT * chunk) + sector
-					#chunk_pos = sector * CISO_BLOCK_SIZE
+					if block >= ciso['total_blocks']:
+						break
+
+					raw_block_offset = sector * CISO_BLOCK_SIZE
 
 					# Check if we need to split the ISO (due to FATX limitations)
 					# TODO: Determine a better value for this.
@@ -245,22 +270,17 @@ def compress_iso(infile):
 					# Mark offset index
 					block_index[block] = write_pos >> ciso['align']
 
-					# Read raw data
-					raw_data = sector_list[sector]
-					raw_data_size = len(raw_data)
-
-					compressed_data = compressed_list[sector]
-					compressed_size = len(compressed_data)
-
 					# Ensure compressed data is smaller than raw data
 					# TODO: Find optimal block size to avoid fragmentation
-					if (compressed_size + 12) >= raw_data_size:
-						writable_data = raw_data
+					if (compressed_size + 12) >= CISO_BLOCK_SIZE:
+						offset = chunk_offset + raw_block_offset
+						out_bytes += inshm_bytes[offset: offset + CISO_BLOCK_SIZE]
 
 						# Next index
-						write_pos += raw_data_size
+						write_pos += CISO_BLOCK_SIZE
 					else:
-						writable_data = compressed_data
+						offset = cmp_chunk_offset + cmp_sect_offset
+						out_bytes += cmpshm_bytes[offset: offset + compressed_size]
 
 						# LZ4 block marker
 						block_index[block] |= 0x80000000
@@ -268,8 +288,7 @@ def compress_iso(infile):
 						# Next index
 						write_pos += compressed_size
 
-					# Write data
-					out_bytes += writable_data
+					cmp_sect_offset += compressed_size
 
 					if len(out_bytes) >= CHUNK_SIZE or write_pos > CISO_SPLIT_SIZE:
 						split_fout.write(out_bytes)
