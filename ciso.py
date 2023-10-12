@@ -26,8 +26,8 @@ MP_NUM_CHUNKS = 64 # number of chunks to read for multiprocessing
 MP_CHUNK_SIZE = MP_NUM_CHUNKS * CHUNK_SIZE
 MP_CHUNK_SECT = MP_CHUNK_SIZE / CISO_BLOCK_SIZE
 
-CMP_LIST_SMH_PAD  = 4 # pad bytes for each sector in compressed list shm
-CMP_LIST_SMH_PAD_SIZE = (CISO_BLOCK_SIZE + CMP_LIST_SMH_PAD) * CHUNK_NUM_SECT * MP_NUM_CHUNKS
+CMP_LIST_SHM_PAD  = 4 # pad bytes for each sector in compressed list shm
+CMP_LIST_SHM_PAD_SIZE = (CISO_BLOCK_SIZE + CMP_LIST_SHM_PAD) * CHUNK_NUM_SECT * MP_NUM_CHUNKS
 SHM_IN_SECT_NAME  = 'ciso_shm_in_sectors'
 SHM_CMP_SECT_NAME = 'ciso_shm_cmp_sectors'
 
@@ -147,7 +147,7 @@ def compress_chunk(chunk):
 		out_bytes = bytearray()
 
 		in_offset  = chunk * CHUNK_SIZE
-		out_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SMH_PAD + in_offset
+		out_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SHM_PAD + in_offset
 
 		chunk_data  = bytearray(inshm.buf[in_offset: in_offset + CHUNK_SIZE])
 		num_sectors = math.ceil(len(chunk_data) / CISO_BLOCK_SIZE)
@@ -181,7 +181,7 @@ def compress_chunk(chunk):
 def compress_iso(infile):
 	pool   = multiprocessing.Pool()
 	inshm  = multiprocessing.shared_memory.SharedMemory(name=SHM_IN_SECT_NAME, create=True, size=MP_CHUNK_SIZE)
-	cmpshm = multiprocessing.shared_memory.SharedMemory(name=SHM_CMP_SECT_NAME, create=True, size=CMP_LIST_SMH_PAD_SIZE)
+	cmpshm = multiprocessing.shared_memory.SharedMemory(name=SHM_CMP_SECT_NAME, create=True, size=CMP_LIST_SHM_PAD_SIZE)
 
 	# Replace file extension with .cso
 	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
@@ -244,7 +244,7 @@ def compress_iso(infile):
 
 			for chunk, compressed_sizes_list in enumerate(compressed_sizes):
 				chunk_offset     = chunk * CHUNK_SIZE
-				cmp_chunk_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SMH_PAD + chunk_offset
+				cmp_chunk_offset = chunk * CHUNK_NUM_SECT * CMP_LIST_SHM_PAD + chunk_offset
 				cmp_sect_offset  = 0
 
 				for sector, compressed_size in enumerate(compressed_sizes_list):
