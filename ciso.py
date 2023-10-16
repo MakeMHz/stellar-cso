@@ -6,6 +6,7 @@
 import os
 import struct
 import sys
+import shutil
 import math
 import lz4.frame
 import json
@@ -692,10 +693,55 @@ def gen_attach_xbe(iso_file):
 
 	return title_decoded
 
+# move output files to sub-folder
+def move_output_files(iso_file, output_name = '', len_limit = 255):
+	base_dir      = os.path.dirname(os.path.abspath(iso_file))
+	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
+	out_file_name = base_dir + '/default.xbe'
+
+	if not output_name:
+		output_name = os.path.splitext(os.path.basename(iso_file))[0]
+		output_name = output_name.strip()
+
+	keepcharacters   = (' ', '.', '_', '-')
+	safe_title       = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
+	safe_title_trunc = safe_title[0:len_limit - 6]
+
+	cso_1_ext = '.1.cso'
+	cso_2_ext = '.2.cso'
+
+	cios1_file = iso_base_name + cso_1_ext
+	cios2_file = iso_base_name + cso_2_ext
+
+	out_dir    = base_dir + '/' + safe_title
+	ciso1      = base_dir + '/' + cios1_file
+	ciso2      = base_dir + '/' + cios2_file
+	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
+	new_cios1  = out_dir  + '/' + safe_title_trunc + cso_1_ext
+	new_cios2  = out_dir  + '/' + safe_title_trunc + cso_2_ext
+
+	if not os.path.isdir(out_dir):
+		os.makedirs(out_dir)
+	if os.path.isfile(out_file_name) and os.path.isfile(new_file):
+		os.remove(new_file)
+	if os.path.isfile(ciso1) and os.path.isfile(new_cios1):
+		os.remove(new_cios1)
+	if os.path.isfile(ciso2) and os.path.isfile(new_cios2):
+		os.remove(new_cios2)
+	if os.path.isfile(out_file_name) and not os.path.isfile(new_file):
+		shutil.move(out_file_name, new_file)
+	if os.path.isfile(ciso1) and not os.path.isfile(new_cios1):
+		shutil.move(ciso1, new_cios1)
+	if os.path.isfile(ciso2) and not os.path.isfile(new_cios2):
+		shutil.move(ciso2, new_cios2)
+
 def main(argv):
 	infile = argv[1]
 	compress_iso(infile)
-	gen_attach_xbe(infile)
+	title = gen_attach_xbe(infile)
+
+	if title:
+		move_output_files(infile, title, 42)
 
 if __name__ == '__main__':
 	sys.exit(main(sys.argv))
