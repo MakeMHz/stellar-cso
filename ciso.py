@@ -713,12 +713,12 @@ def move_output_files(iso_file, output_name = '', len_limit = 255):
 	cios1_file = iso_base_name + cso_1_ext
 	cios2_file = iso_base_name + cso_2_ext
 
-	out_dir    = base_dir + '/' + safe_title
-	ciso1      = base_dir + '/' + cios1_file
-	ciso2      = base_dir + '/' + cios2_file
-	new_file   = out_dir  + '/' + os.path.basename(out_file_name)
-	new_cios1  = out_dir  + '/' + safe_title_trunc + cso_1_ext
-	new_cios2  = out_dir  + '/' + safe_title_trunc + cso_2_ext
+	out_dir   = base_dir + '/' + safe_title
+	ciso1     = base_dir + '/' + cios1_file
+	ciso2     = base_dir + '/' + cios2_file
+	new_file  = out_dir  + '/' + os.path.basename(out_file_name)
+	new_cios1 = out_dir  + '/' + safe_title_trunc + cso_1_ext
+	new_cios2 = out_dir  + '/' + safe_title_trunc + cso_2_ext
 
 	if not os.path.isdir(out_dir):
 		os.makedirs(out_dir)
