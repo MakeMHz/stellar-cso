@@ -17,6 +17,8 @@ CISO_BLOCK_SIZE = 0x800 # 2048
 CISO_HEADER_FMT = '<LLQLBBxx' # Little endian
 CISO_PLAIN_BLOCK = 0x80000000
 
+ENV_NAME_CISO_OUTPUT_DIR = 'CISO_OUTPUT_DIR'
+
 TITLE_MAX_LENGTH = 40
 
 #assert(struct.calcsize(CISO_HEADER_FMT) == CISO_HEADER_SIZE)
@@ -113,8 +115,13 @@ def pad_file_size(f):
 def compress_iso(infile):
 	lz4_context = lz4.frame.create_compression_context()
 
+	abs_infile = os.path.abspath(infile)
+	abs_outdir = get_output_dir(os.path.dirname(abs_infile))
+	split_name = os.path.splitext(os.path.basename(abs_infile))[0]
+	out_split_name = abs_outdir + '/' + split_name
+
 	# Replace file extension with .cso
-	fout_1 = open(os.path.splitext(infile)[0] + '.1.cso', 'wb')
+	fout_1 = open(out_split_name + '.1.cso', 'wb')
 	fout_2 = None
 
 	with open(infile, 'rb') as fin:
@@ -151,7 +158,7 @@ def compress_iso(infile):
 			# TODO: Determine a better value for this.
 			if write_pos > 0xFFBF6000:
 				# Create new file for the split
-				fout_2     = open(os.path.splitext(infile)[0] + '.2.cso', 'wb')
+				fout_2     = open(out_split_name + '.2.cso', 'wb')
 				split_fout = fout_2
 
 				# Reset write position
@@ -592,7 +599,7 @@ def patch_xbe_timage_data(xbe_bytes, timage_sect_hdr_bytes, timage_raw_bytes):
 
 def gen_attach_xbe(iso_file):
 	me_path       = os.path.dirname(os.path.abspath(__file__))
-	base_dir      = os.path.dirname(os.path.abspath(iso_file))
+	base_dir      = get_output_dir(os.path.dirname(os.path.abspath(iso_file)))
 	in_file_name  = me_path + '/attach.xbe'
 	json_file     = me_path + '/RepackList.json'
 	out_file_name = base_dir + '/default.xbe'
@@ -693,9 +700,14 @@ def gen_attach_xbe(iso_file):
 
 	return title_decoded
 
+def get_output_dir(default_dir):
+	out_dir = os.environ.get(ENV_NAME_CISO_OUTPUT_DIR)
+	out_dir = out_dir if out_dir and os.path.isdir(out_dir) else default_dir
+	return out_dir
+
 # move output files to sub-folder
 def move_output_files(iso_file, output_name = '', len_limit = 255):
-	base_dir      = os.path.dirname(os.path.abspath(iso_file))
+	base_dir      = get_output_dir(os.path.dirname(os.path.abspath(iso_file)))
 	iso_base_name = os.path.splitext(os.path.basename(iso_file))[0]
 	out_file_name = base_dir + '/default.xbe'
 
