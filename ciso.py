@@ -252,6 +252,9 @@ def get_iso_root_dir_offset_and_size(iso_file):
 	iso_header_offset    = 0x10000
 	root_dir_sect_offset = 0x14
 
+	root_dir_offset = 0
+	root_dir_size   = 0
+
 	with open(iso_file, 'rb') as f:
 		detect_iso_type(f)
 
@@ -360,7 +363,6 @@ def get_xbe_section_offsets_from_bytes(header_bytes, search_section):
 		name_offset = name_addr - base_addr
 		name = readcstr(header_bytes, name_offset)
 
-		# title image section
 		if name == search_section:
 			return offset, raw_addr, raw_size
 
