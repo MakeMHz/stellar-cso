@@ -17,7 +17,8 @@ CISO_BLOCK_SIZE = 0x800 # 2048
 CISO_HEADER_FMT = '<LLQLBBxx' # Little endian
 CISO_PLAIN_BLOCK = 0x80000000
 
-ENV_NAME_CISO_OUTPUT_DIR = 'CISO_OUTPUT_DIR'
+ENV_NAME_CISO_OUTPUT_DIR    = 'CISO_OUTPUT_DIR'
+ENV_NAME_CISO_COMPRESS_MODE = 'CISO_COMPRESS_MODE'
 
 TITLE_MAX_LENGTH = 40
 
@@ -232,6 +233,75 @@ def compress_iso(infile):
 	if fout_2:
 		pad_file_size(fout_2)
 		fout_2.close()
+
+def split_iso(infile):
+	abs_infile = os.path.abspath(infile)
+	abs_outdir = get_output_dir(os.path.dirname(abs_infile))
+	split_name = os.path.splitext(os.path.basename(abs_infile))[0]
+	out_split_name = abs_outdir + '/' + split_name
+
+	# Replace file extension with .iso
+	fout_1 = open(out_split_name + '.1.iso', 'wb')
+	fout_2 = None
+
+	with open(infile, 'rb') as fin:
+		print("Processing '{}'".format(infile))
+
+		# Detect and validate the ISO
+		detect_iso_type(fin)
+
+		ciso = check_file_size(fin)
+		for k, v in ciso.items():
+			print("{}: {}".format(k, v))
+
+		write_pos = fout_1.tell()
+
+		# Progress counters
+		percent_period = ciso['total_blocks'] / 100
+		percent_cnt = 0
+
+		split_fout = fout_1
+
+		for block in range(0, ciso['total_blocks']):
+			# Check if we need to split the ISO (due to FATX limitations)
+			# TODO: Determine a better value for this.
+			if write_pos > 0xFFBF6000:
+				# Create new file for the split
+				fout_2     = open(out_split_name + '.2.iso', 'wb')
+				split_fout = fout_2
+
+				# Reset write position
+				write_pos = 0
+
+			# Read raw data
+			raw_data = fin.read(ciso['block_size'])
+			raw_data_size = len(raw_data)
+
+			# Next index
+			write_pos += raw_data_size
+
+			# Write data
+			split_fout.write(raw_data)
+
+			# Progress bar
+			percent = int(round((block / (ciso['total_blocks'] + 1)) * 100))
+			if percent > percent_cnt:
+				update_progress((block / (ciso['total_blocks'] + 1)))
+				percent_cnt = percent
+
+		print("\nDone")
+
+	fout_1.close()
+	if fout_2:
+		fout_2.close()
+
+def process_iso(infile):
+	mode = get_compress_mode()
+
+	if mode == 'ISO':
+		split_iso(infile)
+	else:
+		compress_iso(infile)
 
 def is_xbe_file(xbe, offset = 0):
 	if not os.path.isfile(xbe):
@@ -707,6 +777,11 @@ def get_output_dir(default_dir):
 	out_dir = out_dir if out_dir and os.path.isdir(out_dir) else default_dir
 	return out_dir
 
+def get_compress_mode():
+	comp_mode = os.environ.get(ENV_NAME_CISO_COMPRESS_MODE)
+	comp_mode = comp_mode if comp_mode else 'CSO'
+	return comp_mode
+
 # move output files to sub-folder
 def move_output_files(iso_file, output_name = '', len_limit = 255):
 	base_dir      = get_output_dir(os.path.dirname(os.path.abspath(iso_file)))
@@ -720,9 +795,10 @@ def move_output_files(iso_file, output_name = '', len_limit = 255):
 	keepcharacters   = (' ', '.', '_', '-')
 	safe_title       = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
 	safe_title_trunc = safe_title[0:len_limit - 6]
+	ext = get_compress_mode().lower()
 
-	cso_1_ext = '.1.cso'
-	cso_2_ext = '.2.cso'
+	cso_1_ext = '.1.' + ext
+	cso_2_ext = '.2.' + ext
 
 	cios1_file = iso_base_name + cso_1_ext
 	cios2_file = iso_base_name + cso_2_ext
@@ -751,7 +827,7 @@ def move_output_files(iso_file, output_name = '', len_limit = 255):
 
 def main(argv):
 	infile = argv[1]
-	compress_iso(infile)
+	process_iso(infile)
 	title = gen_attach_xbe(infile)
 
 	if title:
