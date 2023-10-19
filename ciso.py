@@ -10,6 +10,7 @@ import shutil
 import math
 import lz4.frame
 import json
+import re
 
 CISO_MAGIC = 0x4F534943 # CISO
 CISO_HEADER_SIZE = 0x18 # 24
@@ -792,8 +793,9 @@ def move_output_files(iso_file, output_name = '', len_limit = 255):
 		output_name = os.path.splitext(os.path.basename(iso_file))[0]
 		output_name = output_name.strip()
 
-	keepcharacters   = (' ', '.', '_', '-')
-	safe_title       = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
+	keepcharacters = (' ', '.', '_', '-')
+	safe_title     = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
+	safe_title     = re.sub('\s+', ' ', safe_title)
 	safe_title_trunc = safe_title[0:len_limit - 6]
 	ext = get_compress_mode().lower()
 
