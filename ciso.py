@@ -793,9 +793,9 @@ def move_output_files(iso_file, output_name = '', len_limit = 255):
 		output_name = os.path.splitext(os.path.basename(iso_file))[0]
 		output_name = output_name.strip()
 
-	keepcharacters = (' ', '.', '_', '-')
-	safe_title     = "".join(c for c in output_name if c.isalnum() or c in keepcharacters).rstrip()
-	safe_title     = re.sub('\s+', ' ', safe_title)
+	keepchars  = list(" ._-()[]&$!'#@%^{}~`")
+	safe_title = "".join(c for c in output_name if c.isalnum() or c in keepchars).rstrip()
+	safe_title = re.sub('\s+', ' ', safe_title)
 	safe_title_trunc = safe_title[0:len_limit - 6]
 	ext = get_compress_mode().lower()
 
